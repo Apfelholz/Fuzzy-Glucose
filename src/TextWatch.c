@@ -48,7 +48,16 @@ typedef struct {
 } Line;
 
 static Line lines[NUM_LINES];
-static InverterLayer *inverter_layer;
+static Layer *inverter_layer;
+
+static void inverter_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  // Zeichnet ein einfaches Highlight. Passe GColor an dein Design an:
+  // z.B. GColorWhite für heller Hintergrund, GColorBlack für dunkles Design.
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+}
+
 
 static struct tm *t;
 
@@ -66,47 +75,103 @@ static void animationStoppedHandler(struct Animation *animation, bool finished, 
 	layer_set_frame((Layer *)current, rect);
 }
 
-// Animate line
-static void makeAnimationsForLayer(Line *line, int delay)
-{
-	TextLayer *current = line->currentLayer;
-	TextLayer *next = line->nextLayer;
+// // Animate line
+// static void makeAnimationsForLayer(Line *line, int delay)
+// {
+// 	TextLayer *current = line->currentLayer;
+// 	TextLayer *next = line->nextLayer;
 
-	// Destroy old animations
-	if (line->animation1 != NULL)
-	{
-		 property_animation_destroy(line->animation1);
-	}
-	if (line->animation2 != NULL)
-	{
-		 property_animation_destroy(line->animation2);
-	}
+// 	// Destroy old animations
+// 	if (line->animation1 != NULL)
+// 	{
+// 		line->animation1 = NULL;
+// 	}
+// 	if (line->animation2 != NULL)
+// 	{
+// 		line->animation2 = NULL;
+// 	}
 
-	// Configure animation for current layer to move out
-	GRect rect = layer_get_frame((Layer *)current);
-	rect.origin.x =  -144;
-	line->animation1 = property_animation_create_layer_frame((Layer *)current, NULL, &rect);
-	animation_set_duration(&line->animation1->animation, ANIMATION_DURATION);
-	animation_set_delay(&line->animation1->animation, delay);
-	animation_set_curve(&line->animation1->animation, AnimationCurveEaseIn); // Accelerate
+// 	// Configure animation for current layer to move out
+// 	GRect rect = layer_get_frame((Layer *)current);
+// 	rect.origin.x =  -144;
+// 	line->animation1 = property_animation_create_layer_frame((Layer *)current, NULL, &rect);
+// 	animation_set_duration(&line->animation1->animation, ANIMATION_DURATION);
+// 	animation_set_delay(&line->animation1->animation, delay);
+// 	animation_set_curve(&line->animation1->animation, AnimationCurveEaseIn); // Accelerate
 
-	// Configure animation for current layer to move in
-	GRect rect2 = layer_get_frame((Layer *)next);
-	rect2.origin.x = 0;
-	line->animation2 = property_animation_create_layer_frame((Layer *)next, NULL, &rect2);
-	animation_set_duration(&line->animation2->animation, ANIMATION_DURATION);
-	animation_set_delay(&line->animation2->animation, delay + ANIMATION_OUT_IN_DELAY);
-	animation_set_curve(&line->animation2->animation, AnimationCurveEaseOut); // Deaccelerate
+// 	// Configure animation for current layer to move in
+// 	GRect rect2 = layer_get_frame((Layer *)next);
+// 	rect2.origin.x = 0;
+// 	line->animation2 = property_animation_create_layer_frame((Layer *)next, NULL, &rect2);
+// 	animation_set_duration(&line->animation2->animation, ANIMATION_DURATION);
+// 	animation_set_delay(&line->animation2->animation, delay + ANIMATION_OUT_IN_DELAY);
+// 	animation_set_curve(&line->animation2->animation, AnimationCurveEaseOut); // Deaccelerate
 
-	// Set a handler to rearrange layers after animation is finished
-	animation_set_handlers(&line->animation2->animation, (AnimationHandlers) {
-		.stopped = (AnimationStoppedHandler)animationStoppedHandler
-	}, current);
+// 	// Set a handler to rearrange layers after animation is finished
+// 	animation_set_handlers(&line->animation2->animation, (AnimationHandlers) {
+// 		.stopped = (AnimationStoppedHandler)animationStoppedHandler
+// 	}, current);
 
-	// Start the animations
-	animation_schedule(&line->animation1->animation);
-	animation_schedule(&line->animation2->animation);	
+// 	// Start the animations
+// 	animation_schedule(&line->animation1->animation);
+// 	animation_schedule(&line->animation2->animation);	
+// }
+static void makeAnimationsForLayer(Line *line, int delay) {
+    if (!line) return;
+
+    TextLayer *current = line->currentLayer;
+    TextLayer *next = line->nextLayer;
+
+    // Destroy old animations (if you previously created them on the heap)
+    if (line->animation1) {
+        property_animation_destroy(line->animation1);
+        line->animation1 = NULL;
+    }
+    if (line->animation2) {
+        property_animation_destroy(line->animation2);
+        line->animation2 = NULL;
+    }
+
+    // --- Create first property animation (move current out) ---
+    GRect rect_current = layer_get_frame((Layer *)current);
+    rect_current.origin.x = -144; // Ziel x (außerhalb links)
+    line->animation1 = property_animation_create_layer_frame((Layer *)current, NULL, &rect_current);
+    if (line->animation1) {
+        Animation *anim1 = property_animation_get_animation(line->animation1);
+        animation_set_duration(anim1, ANIMATION_DURATION);
+        animation_set_delay(anim1, delay);
+        animation_set_curve(anim1, AnimationCurveEaseIn);
+        // optional: set handlers on anim1 if needed
+    }
+
+    // --- Create second property animation (move next in) ---
+    GRect rect_next = layer_get_frame((Layer *)next);
+    rect_next.origin.x = 0; // Ziel x (on-screen)
+    line->animation2 = property_animation_create_layer_frame((Layer *)next, NULL, &rect_next);
+    if (line->animation2) {
+        Animation *anim2 = property_animation_get_animation(line->animation2);
+        animation_set_duration(anim2, ANIMATION_DURATION);
+        animation_set_delay(anim2, delay + ANIMATION_OUT_IN_DELAY);
+        animation_set_curve(anim2, AnimationCurveEaseOut);
+
+        // Set stopped handler on anim2 to call your animationStoppedHandler(context)
+        AnimationHandlers handlers = {
+            .stopped = (AnimationStoppedHandler)animationStoppedHandler
+        };
+        animation_set_handlers(anim2, handlers, current);
+    }
+
+    // Schedule animations (start them)
+    if (line->animation1) {
+        animation_schedule(property_animation_get_animation(line->animation1));
+    }
+    if (line->animation2) {
+        animation_schedule(property_animation_get_animation(line->animation2));
+    }
 }
+
+
+
 
 static void updateLayerText(TextLayer* layer, char* text)
 {
@@ -459,9 +524,11 @@ static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tup
 			invert = new_tuple->value->uint8 == 1;
 			persist_write_bool(INVERT_KEY, invert);
 			APP_LOG(APP_LOG_LEVEL_DEBUG, "Set invert: %u", invert ? 1 : 0);
+			if (inverter_layer) {
+				layer_set_hidden(inverter_layer, !invert);
+				layer_mark_dirty(inverter_layer);
+			}
 
-			layer_set_hidden(inverter_layer_get_layer(inverter_layer), !invert);
-			layer_mark_dirty(inverter_layer_get_layer(inverter_layer));
 			break;
 		case LANGUAGE_KEY:
 			lang = (Language) new_tuple->value->uint8;
@@ -503,6 +570,10 @@ static void destroy_line(Line* line)
 	text_layer_destroy(line->nextLayer);
 }
 
+static const char* get_glocose() {
+	return "67"; // Deine Zahl
+}
+
 static void window_load(Window *window)
 {
 	Layer *window_layer = window_get_root_layer(window);
@@ -516,9 +587,12 @@ static void window_load(Window *window)
 		layer_add_child(window_layer, (Layer *)lines[i].nextLayer);
 	}
 
-	inverter_layer = inverter_layer_create(bounds);
-	layer_set_hidden(inverter_layer_get_layer(inverter_layer), !invert);
-	layer_add_child(window_layer, inverter_layer_get_layer(inverter_layer));
+	inverter_layer = layer_create(bounds);
+	layer_set_hidden(inverter_layer, !invert);
+	layer_set_update_proc(inverter_layer, inverter_update_proc);
+	layer_add_child(window_layer, inverter_layer);
+
+
 
 	// Configure time on init
 	time_t raw_time;
@@ -533,6 +607,17 @@ static void window_load(Window *window)
 		TupletInteger(LANGUAGE_KEY,   (uint8_t) lang)
 	};
 
+
+	const char* glucose = get_glocose();
+
+	TextLayer *bottom_right_layer = text_layer_create(GRect(90, 140, 54, 28)); // x,y,width,height
+	text_layer_set_text(bottom_right_layer, glucose); // Deine Zahl
+	text_layer_set_text_color(bottom_right_layer, GColorWhite);
+	text_layer_set_background_color(bottom_right_layer, GColorClear);
+	text_layer_set_text_alignment(bottom_right_layer, GTextAlignmentRight);
+	layer_add_child(window_get_root_layer(window), text_layer_get_layer(bottom_right_layer));
+
+
 	app_sync_init(&sync, sync_buffer, sizeof(sync_buffer), initial_values, ARRAY_LENGTH(initial_values),
 			sync_tuple_changed_callback, sync_error_callback, NULL);
 }
@@ -542,7 +627,11 @@ static void window_unload(Window *window)
 	app_sync_deinit(&sync);
 
 	// Free layers
-	inverter_layer_destroy(inverter_layer);
+	if (inverter_layer) {
+		layer_destroy(inverter_layer);
+		inverter_layer = NULL;
+	}
+
 	for (int i = 0; i < NUM_LINES; i++)
 	{
 		destroy_line(&lines[i]);

@@ -1,10 +1,10 @@
 #include <pebble.h>
+#include <time.h>
 
 #include "num2words.h"
 #include "AppRequests.h"
 
 
-#define DEBUG 0
 
 #define NUM_LINES 4
 #define LINE_LENGTH 7
@@ -253,7 +253,7 @@ static void get_glucose_data(int *glucose_value, int *trend_value) {
 	app_message_open(128, 128);
 
 	// Beispiel: Daten senden
-	pebble_messenger_send_credentials("username", "password");
+	pebble_messenger_send_credentials("pebble-linkup@bentz.it", "Test Connect,");
 	// Placeholder data; replace with real sensor values when available
 	static int glucose = 120;
 	static int trend = 5;
@@ -574,11 +574,26 @@ static int configureLayersForText(char text[NUM_LINES][BUFFER_SIZE], char format
 	numLines = i;
 
 	// Calculate y position of top Line within reserved vertical area
-	int top_reserve = TOP_TEXT_RESERVE;
+	int top_reserve = TOP_TEXT_RESERVE - 7;
 	int bottom_reserve = BOTTOM_TEXT_RESERVE;
-	const int total_height = numLines > 0 ? ((numLines - 1) * ROW_HEIGHT + TEXT_LAYER_HEIGHT) : 0;
 	int available_height = SCREEN_HEIGHT - top_reserve - bottom_reserve;
-	int ypos = 20;
+	
+	// Use tighter row spacing if 4 lines need to fit
+	int row_height = ROW_HEIGHT;
+	if (numLines == 4) {
+		// Calculate required row height to fit all lines
+		// total_height = (numLines - 1) * row_height + TEXT_LAYER_HEIGHT
+		// We need total_height <= available_height
+		// (numLines - 1) * row_height <= available_height - TEXT_LAYER_HEIGHT
+		int max_row_height = (available_height - TEXT_LAYER_HEIGHT) / (numLines - 1) + 4;
+		if (max_row_height < row_height) {
+			row_height = max_row_height;
+		}
+		top_reserve -= 5;
+	}
+	
+	const int total_height = numLines > 0 ? ((numLines - 1) * row_height + TEXT_LAYER_HEIGHT) : 0;
+	int ypos = top_reserve;
 	if (total_height < available_height) {
 		ypos += (available_height - total_height) / 2;
 	}
@@ -587,7 +602,7 @@ static int configureLayersForText(char text[NUM_LINES][BUFFER_SIZE], char format
 	for (int i = 0; i < numLines; i++)
 	{
 		layer_set_frame((Layer *)lines[i].nextLayer, GRect(144, ypos, 144, TEXT_LAYER_HEIGHT));
-		ypos += ROW_HEIGHT;
+		ypos += row_height;
 	}
 
 	return numLines;
@@ -682,8 +697,9 @@ static void date_to_lines(int day, int date, int month, char lines[NUM_LINES][BU
 }
 
 // Update screen based on new time
-static void display_time(struct tm *t)
+static void display_time(struct tm *tm)
 {
+
   // The current time text will be stored in the following strings
   char textLine[NUM_LINES][BUFFER_SIZE];
   char format[NUM_LINES];
@@ -963,6 +979,12 @@ static void window_load(Window *window)
 
 	time(&raw_time);
 	t = localtime(&raw_time);
+
+#if DEBUG
+	t->tm_hour = 22;
+	t->tm_min = 25;
+#endif
+
 	display_initial_time(t);
 
 	Tuplet initial_values[] = {

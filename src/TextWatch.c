@@ -12,8 +12,8 @@
 #define ROW_HEIGHT 37
 #define TEXT_LAYER_HEIGHT 50
 #define SCREEN_HEIGHT 168
-#define TOP_TEXT_RESERVE 20
-#define BOTTOM_TEXT_RESERVE 20
+#define TOP_TEXT_RESERVE 21
+#define BOTTOM_TEXT_RESERVE 21
 #define BOTTOM_ARROW_WIDTH 18
 #define DATE_BUFFER_SIZE 16
 #define INFO_BUFFER_SIZE 24
@@ -58,6 +58,7 @@ typedef struct {
 static Line lines[NUM_LINES];
 static Layer *inverter_layer;
 static Layer *top_info_layer;
+static Layer *bottom_info_background_layer;
 static TextLayer *bottom_date_layer;
 static TextLayer *bottom_info_layer;
 static Layer *bottom_arrow_layer;
@@ -75,6 +76,7 @@ static void update_top_time_buffer(struct tm *time);
 static void update_bottom_status(struct tm *time);
 static void apply_bottom_theme(void);
 static void bottom_arrow_update_proc(Layer *layer, GContext *ctx);
+static void bottom_info_background_update_proc(Layer *layer, GContext *ctx);
 
 static void inverter_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
@@ -102,33 +104,46 @@ static void update_top_time_buffer(struct tm *time) {
 	}
 }
 
-static void draw_bluetooth_icon(GContext *ctx, GColor color, GRect bounds) {
-	const int center_y = bounds.origin.y + bounds.size.h / 2;
+static void draw_bluetooth_icon(GContext *ctx, GColor color, GRect bounds, int center_y) {
 	const int origin_x = bounds.origin.x + 10;
+	const int half_height = 6;
+	const int wing_dx = 5;
+	const int wing_dy = 3;
 	graphics_context_set_stroke_color(ctx, color);
-	graphics_draw_line(ctx, GPoint(origin_x, center_y - 7), GPoint(origin_x, center_y + 7));
-	graphics_draw_line(ctx, GPoint(origin_x, center_y - 7), GPoint(origin_x + 6, center_y - 2));
-	graphics_draw_line(ctx, GPoint(origin_x, center_y), GPoint(origin_x + 6, center_y - 2));
-	graphics_draw_line(ctx, GPoint(origin_x, center_y), GPoint(origin_x + 6, center_y + 2));
-	graphics_draw_line(ctx, GPoint(origin_x, center_y + 7), GPoint(origin_x + 6, center_y + 2));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y - half_height), GPoint(origin_x, center_y + half_height));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y - half_height), GPoint(origin_x + wing_dx, center_y - wing_dy));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y), GPoint(origin_x + wing_dx, center_y - wing_dy));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y), GPoint(origin_x - wing_dx, center_y - wing_dy));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y), GPoint(origin_x + wing_dx, center_y + wing_dy));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y), GPoint(origin_x - wing_dx, center_y + wing_dy));
+	graphics_draw_line(ctx, GPoint(origin_x, center_y + half_height), GPoint(origin_x + wing_dx, center_y + wing_dy));
 	if (!bluetooth_connected) {
-		graphics_draw_line(ctx, GPoint(origin_x - 4, center_y - 6), GPoint(origin_x + 8, center_y + 6));
+		// Overlay a thicker diagonal strike to signal the disconnected state
+		const GPoint strike_start = GPoint(origin_x - wing_dx - 1, center_y - half_height - 1);
+		const GPoint strike_end = GPoint(origin_x + wing_dx + 2, center_y + half_height + 2);
+		graphics_draw_line(ctx, strike_start, strike_end);
+		graphics_draw_line(ctx,
+			GPoint(strike_start.x + 1, strike_start.y),
+			GPoint(strike_end.x + 1, strike_end.y));
 	}
 }
 
-static void draw_battery_icon(GContext *ctx, GColor color, GRect bounds) {
-	const int battery_height = 12;
-	const int battery_width = 22;
+static void draw_battery_icon(GContext *ctx, GColor color, GRect bounds, int center_y) {
+	const int battery_height = 9;
+	const int battery_width = 16;
 	const int margin = 6;
-	const int y = bounds.origin.y + (bounds.size.h - battery_height) / 2;
+	const int y = center_y - battery_height / 2;
 	const int x = bounds.origin.x + bounds.size.w - battery_width - margin;
 	GRect body = GRect(x, y, battery_width, battery_height);
-	GRect cap = GRect(x + battery_width, y + 3, 3, battery_height - 6);
+	GRect cap = GRect(x + battery_width, y + 2, 2, battery_height - 4);
 	graphics_context_set_stroke_color(ctx, color);
 	graphics_draw_rect(ctx, body);
 	graphics_context_set_fill_color(ctx, color);
 	graphics_fill_rect(ctx, cap, 0, GCornerNone);
 	int inner_width = body.size.w - 2;
+	if (inner_width < 0) {
+		inner_width = 0;
+	}
 	int fill_width = (inner_width * current_battery_state.charge_percent) / 100;
 	if (fill_width > inner_width) {
 		fill_width = inner_width;
@@ -137,10 +152,12 @@ static void draw_battery_icon(GContext *ctx, GColor color, GRect bounds) {
 		fill_width = 0;
 	}
 	if (current_battery_state.charge_percent > 0 || current_battery_state.is_charging) {
-		if (fill_width == 0 && current_battery_state.charge_percent > 0) {
+		if (fill_width == 0 && current_battery_state.charge_percent > 0 && inner_width > 0) {
 			fill_width = 1;
 		}
-		graphics_fill_rect(ctx, GRect(body.origin.x + 1, body.origin.y + 1, fill_width, body.size.h - 2), 0, GCornerNone);
+		if (fill_width > 0) {
+			graphics_fill_rect(ctx, GRect(body.origin.x + 1, body.origin.y + 1, fill_width, body.size.h - 2), 0, GCornerNone);
+		}
 	}
 	if (current_battery_state.is_charging) {
 		bool base_is_white = gcolor_equal(color, GColorWhite);
@@ -159,13 +176,22 @@ static void top_info_update_proc(Layer *layer, GContext *ctx) {
 	GRect bounds = layer_get_bounds(layer);
 	GColor fg = invert ? GColorBlack : GColorWhite;
 	GColor bg = invert ? GColorWhite : GColorBlack;
+	const int center_y = bounds.origin.y + bounds.size.h / 2;
 	graphics_context_set_fill_color(ctx, bg);
 	graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 	graphics_context_set_text_color(ctx, fg);
 	GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
-	GRect time_bounds = GRect(bounds.origin.x + 30, bounds.origin.y, bounds.size.w - 60, bounds.size.h);
+	const char *time_text = strlen(top_time_buffer) > 0 ? top_time_buffer : "--:--";
+	GRect measure_rect = GRect(0, 0, bounds.size.w - 60, bounds.size.h);
+	GSize text_size = graphics_text_layout_get_content_size(time_text, font, measure_rect, GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter);
+	if (text_size.h <= 0) {
+		text_size.h = 17;
+	}
+	int text_y = center_y - text_size.h / 2 - 3;
+
+	GRect time_bounds = GRect(bounds.origin.x + 30, text_y, bounds.size.w - 60, text_size.h);
 	graphics_draw_text(ctx,
-		strlen(top_time_buffer) > 0 ? top_time_buffer : "--:--",
+		time_text,
 		font,
 		time_bounds,
 		GTextOverflowModeTrailingEllipsis,
@@ -173,8 +199,11 @@ static void top_info_update_proc(Layer *layer, GContext *ctx) {
 		NULL);
 	graphics_context_set_stroke_color(ctx, fg);
 	graphics_context_set_fill_color(ctx, fg);
-	draw_bluetooth_icon(ctx, fg, bounds);
-	draw_battery_icon(ctx, fg, bounds);
+	graphics_draw_line(ctx,
+		GPoint(bounds.origin.x, center_y + 10),
+		GPoint(bounds.origin.x + bounds.size.w, center_y + 10));
+	draw_bluetooth_icon(ctx, fg, bounds, center_y);
+	draw_battery_icon(ctx, fg, bounds, center_y);
 }
 
 static void battery_state_handler(BatteryChargeState state) {
@@ -202,6 +231,20 @@ static void apply_bottom_theme(void) {
 	if (bottom_arrow_layer) {
 		layer_mark_dirty(bottom_arrow_layer);
 	}
+	if (bottom_info_background_layer) {
+		layer_mark_dirty(bottom_info_background_layer);
+	}
+}
+
+static void bottom_info_background_update_proc(Layer *layer, GContext *ctx) {
+	GRect bounds = layer_get_bounds(layer);
+	GColor bg = invert ? GColorWhite : GColorBlack;
+	GColor fg = invert ? GColorBlack : GColorWhite;
+	graphics_context_set_fill_color(ctx, bg);
+	graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+	graphics_context_set_stroke_color(ctx, fg);
+	const int center_y = bounds.origin.y + bounds.size.h / 2;
+	graphics_draw_line(ctx, GPoint(bounds.origin.x, center_y - 10), GPoint(bounds.origin.x + bounds.size.w, center_y - 10));
 }
 
 static void get_glucose_data(int *glucose_value, int *trend_value) {
@@ -268,9 +311,7 @@ static void bottom_arrow_update_proc(Layer *layer, GContext *ctx) {
 	GPoint center = GPoint(bounds.size.w / 2, bounds.size.h / 2);
 	const int length = (bounds.size.w < bounds.size.h ? bounds.size.w : bounds.size.h) / 2 - 2;
 	GColor color = invert ? GColorBlack : GColorWhite;
-	GColor bg = invert ? GColorWhite : GColorBlack;
-	graphics_context_set_fill_color(ctx, bg);
-	graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+	graphics_context_set_stroke_color(ctx, color);
 
 	GPoint tip = center;
 	switch (bottom_trend_direction) {
@@ -884,14 +925,21 @@ static void window_load(Window *window)
 	layer_mark_dirty(top_info_layer);
 
 	const int bottom_y = SCREEN_HEIGHT - BOTTOM_TEXT_RESERVE;
-	bottom_date_layer = text_layer_create(GRect(4, bottom_y, bounds.size.w / 2, BOTTOM_TEXT_RESERVE));
+	bottom_info_background_layer = layer_create(GRect(0, bottom_y, bounds.size.w, BOTTOM_TEXT_RESERVE));
+	layer_set_update_proc(bottom_info_background_layer, bottom_info_background_update_proc);
+	layer_add_child(window_layer, bottom_info_background_layer);
+
+	const int bottom_text_height = 17;
+	const int bottom_text_y = bottom_y + (BOTTOM_TEXT_RESERVE - bottom_text_height) / 2 - 4;
+	bottom_date_layer = text_layer_create(GRect(4, bottom_text_y, bounds.size.w / 2, bottom_text_height));
 	text_layer_set_background_color(bottom_date_layer, GColorClear);
 	text_layer_set_font(bottom_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
 	text_layer_set_text_alignment(bottom_date_layer, GTextAlignmentLeft);
+	layer_set_clips(text_layer_get_layer(bottom_date_layer), false);
 	layer_add_child(window_layer, text_layer_get_layer(bottom_date_layer));
 
 	const int arrow_x = bounds.size.w - BOTTOM_ARROW_WIDTH - 4;
-	GRect info_frame = GRect(bounds.size.w / 2, bottom_y, arrow_x - (bounds.size.w / 2) - 4, BOTTOM_TEXT_RESERVE);
+	GRect info_frame = GRect(bounds.size.w / 2, bottom_text_y, arrow_x - (bounds.size.w / 2) - 4, bottom_text_height);
 	if (info_frame.size.w < 10) {
 		info_frame.size.w = 10;
 	}
@@ -899,6 +947,7 @@ static void window_load(Window *window)
 	text_layer_set_background_color(bottom_info_layer, GColorClear);
 	text_layer_set_font(bottom_info_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
 	text_layer_set_text_alignment(bottom_info_layer, GTextAlignmentRight);
+	layer_set_clips(text_layer_get_layer(bottom_info_layer), false);
 	layer_add_child(window_layer, text_layer_get_layer(bottom_info_layer));
 
 	bottom_arrow_layer = layer_create(GRect(arrow_x, bottom_y, BOTTOM_ARROW_WIDTH, BOTTOM_TEXT_RESERVE));
@@ -939,6 +988,11 @@ static void window_unload(Window *window)
 	if (top_info_layer) {
 		layer_destroy(top_info_layer);
 		top_info_layer = NULL;
+	}
+
+	if (bottom_info_background_layer) {
+		layer_destroy(bottom_info_background_layer);
+		bottom_info_background_layer = NULL;
 	}
 
 	if (bottom_date_layer) {

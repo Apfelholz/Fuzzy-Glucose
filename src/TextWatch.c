@@ -248,22 +248,17 @@ static void bottom_info_background_update_proc(Layer *layer, GContext *ctx) {
 }
 
 static void get_glucose_data(int *glucose_value, int *trend_value) {
-	  pebble_messenger_init();
-	// Buffer-Größe festlegen (anpassen nach Bedarf)
-	app_message_open(128, 128);
+	// Get the last received values from the messenger
+	pebble_messenger_get_glucose(glucose_value, trend_value);
+}
 
-	// Beispiel: Daten senden
-	pebble_messenger_send_credentials("pebble-linkup@bentz.it", "Test Connect,");
-	// Placeholder data; replace with real sensor values when available
-	static int glucose = 120;
-	static int trend = 5;
-
-	if (glucose_value) {
-		*glucose_value = glucose;
-	}
-	if (trend_value) {
-		*trend_value = trend;
-	}
+// Callback when new glucose data is received from Android app
+static void glucose_data_received_callback(int glucose_value, int trend_value) {
+	APP_LOG(APP_LOG_LEVEL_INFO, "Glucose data received: %d, trend: %d", glucose_value, trend_value);
+	trend_value = trend_value;
+	glucose_value = glucose_value;
+	
+	// Update the display with the new data
 }
 
 static void draw_arrow_shape(GContext *ctx, GPoint center, GPoint tip, GColor color) {
@@ -1067,6 +1062,9 @@ static void handle_init() {
 		.pebble_app_connection_handler = bluetooth_handler
 	});
 
+	// Initialize messenger with callback for receiving glucose data from Android
+	pebble_messenger_init(glucose_data_received_callback);
+
 	window = window_create();
 	window_set_background_color(window, GColorBlack);
 	window_set_window_handlers(window, (WindowHandlers) {
@@ -1074,9 +1072,9 @@ static void handle_init() {
 		.unload = window_unload
 	});
 
-	// Initialize message queue
-	const int inbound_size = 64;
-	const int outbound_size = 64;
+	// Initialize message queue (already done in pebble_messenger_init, but set up for AppSync)
+	const int inbound_size = 128;
+	const int outbound_size = 128;
 	app_message_open(inbound_size, outbound_size);
 
 	const bool animated = true;

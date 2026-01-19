@@ -451,7 +451,7 @@ static void makeAnimationsForLayer(Line *line, int delay) {
     TextLayer *current = line->currentLayer;
     TextLayer *next = line->nextLayer;
 
-    // Destroy old animations (if you previously created them on the heap)
+    // Destroy old animations
     if (line->animation1) {
         property_animation_destroy(line->animation1);
         line->animation1 = NULL;
@@ -463,39 +463,37 @@ static void makeAnimationsForLayer(Line *line, int delay) {
 
     // --- Create first property animation (move current out) ---
     GRect rect_current = layer_get_frame((Layer *)current);
-    rect_current.origin.x = -144; // Ziel x (außerhalb links)
+    rect_current.origin.x = -144;
     line->animation1 = property_animation_create_layer_frame((Layer *)current, NULL, &rect_current);
+    
     if (line->animation1) {
         Animation *anim1 = property_animation_get_animation(line->animation1);
-        animation_set_duration(anim1, ANIMATION_DURATION);
-        animation_set_delay(anim1, delay);
-        animation_set_curve(anim1, AnimationCurveEaseIn);
-        // optional: set handlers on anim1 if needed
+        if (anim1) {
+            animation_set_duration(anim1, ANIMATION_DURATION);
+            animation_set_delay(anim1, delay);
+            animation_set_curve(anim1, AnimationCurveEaseIn);
+            animation_schedule(anim1);
+        }
     }
 
     // --- Create second property animation (move next in) ---
     GRect rect_next = layer_get_frame((Layer *)next);
-    rect_next.origin.x = 0; // Ziel x (on-screen)
+    rect_next.origin.x = 0;
     line->animation2 = property_animation_create_layer_frame((Layer *)next, NULL, &rect_next);
+    
     if (line->animation2) {
         Animation *anim2 = property_animation_get_animation(line->animation2);
-        animation_set_duration(anim2, ANIMATION_DURATION);
-        animation_set_delay(anim2, delay + ANIMATION_OUT_IN_DELAY);
-        animation_set_curve(anim2, AnimationCurveEaseOut);
-
-        // Set stopped handler on anim2 to call your animationStoppedHandler(context)
-        AnimationHandlers handlers = {
-            .stopped = (AnimationStoppedHandler)animationStoppedHandler
-        };
-        animation_set_handlers(anim2, handlers, current);
-    }
-
-    // Schedule animations (start them)
-    if (line->animation1) {
-        animation_schedule(property_animation_get_animation(line->animation1));
-    }
-    if (line->animation2) {
-        animation_schedule(property_animation_get_animation(line->animation2));
+        if (anim2) {
+            animation_set_duration(anim2, ANIMATION_DURATION);
+            animation_set_delay(anim2, delay + ANIMATION_OUT_IN_DELAY);
+            animation_set_curve(anim2, AnimationCurveEaseOut);
+            
+            AnimationHandlers handlers = {
+                .stopped = (AnimationStoppedHandler)animationStoppedHandler
+            };
+            animation_set_handlers(anim2, handlers, current);
+            animation_schedule(anim2);
+        }
     }
 }
 
@@ -555,19 +553,19 @@ static GTextAlignment lookup_text_alignment(int align_key)
 // Configure bold line of text
 static void configureBoldLayer(TextLayer *textlayer)
 {
-	text_layer_set_font(textlayer, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
-	text_layer_set_text_color(textlayer, GColorWhite);
-	text_layer_set_background_color(textlayer, GColorClear);
-	text_layer_set_text_alignment(textlayer, lookup_text_alignment(text_align));
+    text_layer_set_font(textlayer, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
+    text_layer_set_text_color(textlayer, invert ? GColorBlack : GColorWhite);
+    text_layer_set_background_color(textlayer, GColorClear);
+    text_layer_set_text_alignment(textlayer, lookup_text_alignment(text_align));
 }
 
 // Configure light line of text
 static void configureLightLayer(TextLayer *textlayer)
 {
-	text_layer_set_font(textlayer, fonts_get_system_font(FONT_KEY_BITHAM_42_LIGHT));
-	text_layer_set_text_color(textlayer, GColorWhite);
-	text_layer_set_background_color(textlayer, GColorClear);
-	text_layer_set_text_alignment(textlayer, lookup_text_alignment(text_align));
+    text_layer_set_font(textlayer, fonts_get_system_font(FONT_KEY_BITHAM_42_LIGHT));
+    text_layer_set_text_color(textlayer, invert ? GColorBlack : GColorWhite);
+    text_layer_set_background_color(textlayer, GColorClear);
+    text_layer_set_text_alignment(textlayer, lookup_text_alignment(text_align));
 }
 
 // Configure the layers for the given text
@@ -861,52 +859,61 @@ static void sync_error_callback(DictionaryResult dict_error, AppMessageResult ap
 }
 
 static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tuple, const Tuple* old_tuple, void* context) {
-	GTextAlignment alignment;
-	switch (key) {
-		case TEXT_ALIGN_KEY:
-			text_align = new_tuple->value->uint8;
-			persist_write_int(TEXT_ALIGN_KEY, text_align);
-			APP_LOG(APP_LOG_LEVEL_DEBUG, "Set text alignment: %u", text_align);
+    GTextAlignment alignment;
+    switch (key) {
+        case TEXT_ALIGN_KEY:
+            text_align = new_tuple->value->uint8;
+            persist_write_int(TEXT_ALIGN_KEY, text_align);
+            APP_LOG(APP_LOG_LEVEL_DEBUG, "Set text alignment: %u", text_align);
 
-			alignment = lookup_text_alignment(text_align);
-			for (int i = 0; i < NUM_LINES; i++)
-			{
-				text_layer_set_text_alignment(lines[i].currentLayer, alignment);
-				text_layer_set_text_alignment(lines[i].nextLayer, alignment);
-				layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
-				layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
-			}
-			break;
-		case INVERT_KEY:
-			invert = new_tuple->value->uint8 == 1;
-			persist_write_bool(INVERT_KEY, invert);
-			APP_LOG(APP_LOG_LEVEL_DEBUG, "Set invert: %u", invert ? 1 : 0);
-			if (inverter_layer) {
-				layer_set_hidden(inverter_layer, !invert);
-				layer_mark_dirty(inverter_layer);
-			}
-			if (top_info_layer) {
-				layer_mark_dirty(top_info_layer);
-			}
-			apply_bottom_theme();
-			if (bottom_date_layer) {
-				layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
-			}
-			if (bottom_info_layer) {
-				layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
-			}
+            alignment = lookup_text_alignment(text_align);
+            for (int i = 0; i < NUM_LINES; i++)
+            {
+                text_layer_set_text_alignment(lines[i].currentLayer, alignment);
+                text_layer_set_text_alignment(lines[i].nextLayer, alignment);
+                layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
+                layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
+            }
+            break;
+        case INVERT_KEY:
+            invert = new_tuple->value->uint8 == 1;
+            persist_write_bool(INVERT_KEY, invert);
+            APP_LOG(APP_LOG_LEVEL_DEBUG, "Set invert: %u", invert ? 1 : 0);
+            
+            // Update text layer colors for all lines
+            GColor text_color = invert ? GColorBlack : GColorWhite;
+            for (int i = 0; i < NUM_LINES; i++) {
+                text_layer_set_text_color(lines[i].currentLayer, text_color);
+                text_layer_set_text_color(lines[i].nextLayer, text_color);
+                layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
+                layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
+            }
+            
+            if (inverter_layer) {
+                layer_set_hidden(inverter_layer, !invert);
+                layer_mark_dirty(inverter_layer);
+            }
+            if (top_info_layer) {
+                layer_mark_dirty(top_info_layer);
+            }
+            apply_bottom_theme();
+            if (bottom_date_layer) {
+                layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+            }
+            if (bottom_info_layer) {
+                layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+            }
+            break;
+        case LANGUAGE_KEY:
+            lang = (Language) new_tuple->value->uint8;
+            persist_write_int(LANGUAGE_KEY, lang);
+            APP_LOG(APP_LOG_LEVEL_DEBUG, "Set language: %u", lang);
 
-			break;
-		case LANGUAGE_KEY:
-			lang = (Language) new_tuple->value->uint8;
-			persist_write_int(LANGUAGE_KEY, lang);
-			APP_LOG(APP_LOG_LEVEL_DEBUG, "Set language: %u", lang);
-
-			if (t)
-			{
-				display_time(t);
-			}
-	}
+            if (t)
+            {
+                display_time(t);
+            }
+    }
 }
 
 static void init_line(Line* line)

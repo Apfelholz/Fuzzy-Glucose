@@ -67,7 +67,7 @@ static bool bluetooth_connected;
 static char top_time_buffer[6];
 static char bottom_date_buffer[DATE_BUFFER_SIZE];
 static char bottom_info_buffer[INFO_BUFFER_SIZE];
-static int bottom_trend_direction;
+static int bottom_trend_direction = TREND_UNKNOWN;
 
 static void top_info_update_proc(Layer *layer, GContext *ctx);
 static void battery_state_handler(BatteryChargeState state);
@@ -324,25 +324,27 @@ static void bottom_arrow_update_proc(Layer *layer, GContext *ctx) {
 
 	GPoint tip = center;
 	switch (bottom_trend_direction) {
-		case 0:
+		case TREND_DOUBLE_UP:
 			tip.y -= length;
 			break;
-		case 1:
+		case TREND_SINGLE_UP:
 			tip.x += length;
 			tip.y -= length;
 			break;
-		case 2:
+		case TREND_FORTY_FIVE_UP:
 			tip.x += length;
 			break;
-		case 3:
+		case TREND_FLAT:
 			tip.x += length;
+			break;
+		case TREND_FORTY_FIVE_DOWN:
 			tip.y += length;
 			break;
-		case 4:
-			tip.y += length;
-			break;
-		case 5:
+		case TREND_SINGLE_DOWN:
 			tip.x -= length;
+			break;
+		case TREND_DOUBLE_DOWN:
+			tip.y += length;
 			break;
 		default:
 			return;
@@ -500,19 +502,23 @@ static void makeAnimationsForLayer(Line *line, int delay) {
 
 
 
-static void updateLayerText(TextLayer* layer, char* text)
+static void updateLayerText(Line *line, TextLayer *layer, const char *text)
 {
-	const char* layerText = text_layer_get_text(layer);
-	strcpy((char*)layerText, text);
-	// To mark layer dirty
-	text_layer_set_text(layer, layerText);
-    //layer_mark_dirty(&layer->layer);
+	if (!line || !layer || !text) {
+		return;
+	}
+
+	char *target_buffer = (layer == line->currentLayer) ? line->lineStr1 : line->lineStr2;
+	strncpy(target_buffer, text, BUFFER_SIZE - 1);
+	target_buffer[BUFFER_SIZE - 1] = '\0';
+
+	text_layer_set_text(layer, target_buffer);
 }
 
 // Update line
 static void updateLineTo(Line *line, char *value, int delay)
 {
-	updateLayerText(line->nextLayer, value);
+	updateLayerText(line, line->nextLayer, value);
 	makeAnimationsForLayer(line, delay);
 
 	// Swap current/next layers
@@ -778,13 +784,24 @@ static void display_initial_time(struct tm *t)
 	update_top_time_buffer(t);
 	update_bottom_status(t);
 
+	// Ensure bottom info layers are marked dirty to be rendered
+	if (bottom_date_layer) {
+		layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+	}
+	if (bottom_info_layer) {
+		layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+	}
+	if (bottom_arrow_layer) {
+		layer_mark_dirty(bottom_arrow_layer);
+	}
+
 	// This configures the nextLayer for each line
 	currentNLines = configureLayersForText(textLine, format);
 
 	// Set the text and configure layers to the start position
 	for (int i = 0; i < currentNLines; i++)
 	{
-		updateLayerText(lines[i].nextLayer, textLine[i]);
+		updateLayerText(&lines[i], lines[i].nextLayer, textLine[i]);
 		// This call switches current- and nextLayer
 		initLineForStart(&lines[i]);
 	}	
@@ -1009,11 +1026,6 @@ static void window_load(Window *window)
 	time(&raw_time);
 	t = localtime(&raw_time);
 
-#if DEBUG
-	t->tm_hour = 22;
-	t->tm_min = 25;
-#endif
-
 	display_initial_time(t);
 
 	Tuplet initial_values[] = {
@@ -1024,6 +1036,9 @@ static void window_load(Window *window)
 
 	app_sync_init(&sync, sync_buffer, sizeof(sync_buffer), initial_values, ARRAY_LENGTH(initial_values),
 			sync_tuple_changed_callback, sync_error_callback, NULL);
+
+	// Ensure our glucose handler runs before AppSync by re-registering after init
+	pebble_messenger_register_handlers();
 }
 
 static void window_unload(Window *window)
@@ -1088,7 +1103,7 @@ static void handle_init() {
 	snprintf(top_time_buffer, sizeof(top_time_buffer), "--:--");
 	bottom_date_buffer[0] = '\0';
 	bottom_info_buffer[0] = '\0';
-	bottom_trend_direction = 0;
+	bottom_trend_direction = TREND_UNKNOWN;
 	current_battery_state = battery_state_service_peek();
 	bluetooth_connected = connection_service_peek_pebble_app_connection();
 	battery_state_service_subscribe(battery_state_handler);

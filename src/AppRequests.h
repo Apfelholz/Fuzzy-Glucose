@@ -28,6 +28,9 @@ typedef void (*GlucoseDataCallback)(int glucose_value, int trend_value);
 // Note: Call this BEFORE app_message_open() and AppSync init
 void pebble_messenger_init(GlucoseDataCallback callback);
 
+// Allow re-registering handlers after AppSync sets its callbacks
+void pebble_messenger_register_handlers(void);
+
 // Open app message with appropriate buffer sizes
 void pebble_messenger_open(uint32_t inbox_size, uint32_t outbox_size);
 

@@ -7,3 +7,6 @@ build
 wscript
 
 node_modules/
+
+# Local test credentials (do not commit)
+src/pkjs/credentials.json

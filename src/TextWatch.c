@@ -363,6 +363,9 @@ static void update_bottom_status(struct tm *time) {
 		bottom_date_buffer[sizeof(bottom_date_buffer) - 1] = '\0';
 	}
 	
+	// Request fresh glucose data from phone
+	pebble_messenger_request_glucose();
+	
 	// Get glucose data from messenger
 	int glucose_value = 0;
 	int trend_value = TREND_UNKNOWN;
@@ -891,6 +894,22 @@ static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tup
                 layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
                 layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
             }
+            if (t) {
+                update_top_time_buffer(t);
+                update_bottom_status(t);
+            }
+            if (top_info_layer) {
+                layer_mark_dirty(top_info_layer);
+            }
+            if (bottom_date_layer) {
+                layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+            }
+            if (bottom_info_layer) {
+                layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+            }
+            if (bottom_arrow_layer) {
+                layer_mark_dirty(bottom_arrow_layer);
+            }
             break;
         case INVERT_KEY:
             invert = new_tuple->value->uint8 == 1;
@@ -910,6 +929,10 @@ static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tup
                 layer_set_hidden(inverter_layer, !invert);
                 layer_mark_dirty(inverter_layer);
             }
+            if (t) {
+                update_top_time_buffer(t);
+                update_bottom_status(t);
+            }
             if (top_info_layer) {
                 layer_mark_dirty(top_info_layer);
             }
@@ -919,6 +942,9 @@ static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tup
             }
             if (bottom_info_layer) {
                 layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+            }
+            if (bottom_arrow_layer) {
+                layer_mark_dirty(bottom_arrow_layer);
             }
             break;
         case LANGUAGE_KEY:

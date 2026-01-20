@@ -8,7 +8,9 @@ static GlucoseDataCallback s_glucose_callback = NULL;
 static int s_glucose_value = 0;      // Default: no data
 static int s_trend_value = -1;       // Default: unknown trend (-1)
 static time_t s_last_glucose_timestamp = 0;  // Unix time of last valid data
+static time_t s_last_request_timestamp = 0;  // Unix time of last request sent
 static const time_t GLUCOSE_STALE_SECONDS = 15 * 60;  // Consider data stale after 15 minutes
+static const time_t GLUCOSE_REQUEST_THROTTLE_SECONDS = 5;  // Minimum 5 seconds between requests
 static bool s_initialized = false;
 
 // Forward declaration for AppSync callback compatibility
@@ -148,6 +150,7 @@ void pebble_messenger_init(GlucoseDataCallback callback) {
   s_glucose_value = 0;
   s_trend_value = -1;
   s_last_glucose_timestamp = 0;
+  s_last_request_timestamp = 0;
   
   // Register callbacks - may be overridden by AppSync later; can re-register after AppSync
   register_message_handlers();
@@ -179,6 +182,15 @@ void pebble_messenger_open(uint32_t inbox_size, uint32_t outbox_size) {
 
 // Request glucose data from phone (sends a request message)
 void pebble_messenger_request_glucose(void) {
+  // Throttle requests to prevent spamming the message queue
+  time_t now = time(NULL);
+  if (now != (time_t)-1 && s_last_request_timestamp != 0) {
+    if ((now - s_last_request_timestamp) < GLUCOSE_REQUEST_THROTTLE_SECONDS) {
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "Glucose request throttled (too soon)");
+      return;
+    }
+  }
+  
   DictionaryIterator *iter;
   AppMessageResult result = app_message_outbox_begin(&iter);
   
@@ -195,6 +207,7 @@ void pebble_messenger_request_glucose(void) {
   if (result != APP_MSG_OK) {
     APP_LOG(APP_LOG_LEVEL_ERROR, "Failed to send request: %d", (int)result);
   } else {
+    s_last_request_timestamp = now;
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Glucose data requested");
   }
 }
@@ -205,6 +218,7 @@ void pebble_messenger_deinit(void) {
   
   s_glucose_callback = NULL;
   s_original_inbox_handler = NULL;
+  s_last_request_timestamp = 0;
   s_last_glucose_timestamp = 0;
   s_initialized = false;
   

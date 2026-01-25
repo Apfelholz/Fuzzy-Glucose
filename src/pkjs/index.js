@@ -162,18 +162,41 @@ function webviewclosed(event) {
   }
 
   try {
-    var options = clay.getSettings(event.response);
-    console.log('Clay settings parsed: ' + JSON.stringify(options));
-    localStorage.setItem('options', JSON.stringify(options));
+    // Use convert=false to get raw settings with readable keys
+    // Clay's auto-conversion doesn't work because message_keys isn't properly injected
+    var rawSettings = clay.getSettings(event.response, false);
+    console.log('Clay raw settings: ' + JSON.stringify(rawSettings));
+    
+    localStorage.setItem('options', JSON.stringify(rawSettings));
 
+    // Manually build the message with correct numeric keys
     var message = {};
-    message[KEYS.INVERT_KEY] = options.INVERT ? 1 : 0;
-    message[KEYS.TEXT_ALIGN_KEY] = parseInt(options.TEXT_ALIGN || '0', 10);
-    message[KEYS.LANGUAGE_KEY] = parseInt(options.LANGUAGE || '3', 10);
+    
+    // INVERT_KEY (toggle returns object with value property or boolean)
+    var invertVal = rawSettings.INVERT_KEY;
+    if (typeof invertVal === 'object' && invertVal !== null) {
+      invertVal = invertVal.value;
+    }
+    message[KEYS.INVERT_KEY] = invertVal ? 1 : 0;
+    
+    // TEXT_ALIGN_KEY (select returns object with value property or string)
+    var alignVal = rawSettings.TEXT_ALIGN_KEY;
+    if (typeof alignVal === 'object' && alignVal !== null) {
+      alignVal = alignVal.value;
+    }
+    message[KEYS.TEXT_ALIGN_KEY] = parseInt(alignVal || '0', 10);
+    
+    // LANGUAGE_KEY (select returns object with value property or string)
+    var langVal = rawSettings.LANGUAGE_KEY;
+    if (typeof langVal === 'object' && langVal !== null) {
+      langVal = langVal.value;
+    }
+    message[KEYS.LANGUAGE_KEY] = parseInt(langVal || '3', 10);
 
+    console.log('Sending message to watch: ' + JSON.stringify(message));
     sendSettingsToWatch(message);
   } catch (e) {
-    console.log('Error parsing configuration: ' + e.message);
+    console.log('Error parsing configuration: ' + e.message + ' - ' + e.stack);
   }
 }
 

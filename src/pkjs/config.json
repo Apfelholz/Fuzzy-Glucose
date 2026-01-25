@@ -8,13 +8,13 @@
       },
       {
         "type": "toggle",
-        "messageKey": "INVERT",
+        "messageKey": "INVERT_KEY",
         "label": "Invert Colors",
         "defaultValue": false
       },
       {
         "type": "select",
-        "messageKey": "TEXT_ALIGN",
+        "messageKey": "TEXT_ALIGN_KEY",
         "label": "Text Alignment",
         "defaultValue": "0",
         "options": [
@@ -25,7 +25,7 @@
       },
       {
         "type": "select",
-        "messageKey": "LANGUAGE",
+        "messageKey": "LANGUAGE_KEY",
         "label": "Language",
         "defaultValue": "3",
         "options": [

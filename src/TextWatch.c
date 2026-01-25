@@ -1177,9 +1177,9 @@ static void window_load(Window *window)
 	app_sync_init(&sync, sync_buffer, sizeof(sync_buffer), initial_values, ARRAY_LENGTH(initial_values),
 			sync_tuple_changed_callback, sync_error_callback, NULL);
 
-	// Note: We no longer re-register handlers here. Settings are now handled directly
-	// in the messenger's inbox callback via settings_received_callback, bypassing AppSync.
-	// AppSync is kept for backward compatibility but settings_received_callback is primary.
+	// Re-register our handlers AFTER AppSync init, so we intercept messages first
+	// and can forward to AppSync if needed. This is critical for settings to work.
+	pebble_messenger_register_handlers();
 }
 
 static void window_unload(Window *window)

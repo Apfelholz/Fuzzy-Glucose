@@ -283,11 +283,166 @@ function pickMeasurement(container) {
   }
   return m;
 }
+function fetchGlucoseFromLibreLinkUp() {
+  if (fetchInFlight) {
+    return fetchInFlight;
+  }
 
-// Für die LibreLinkUp-Fetch-Funktion alles mit normalen Funktionen und keine ES6 Features
-// (hier würde der Fetch-Code analog umgesetzt werden, alles mit var, function, .then())
+  var options = parseOptions();
+  if (!options.email && testCredentials.email) {
+    options.email = testCredentials.email;
+  }
+  if (!options.password && testCredentials.password) {
+    options.password = testCredentials.password;
+  }
+  if (!options.email || !options.password) {
+    console.log('LibreLinkUp credentials are missing');
+    return Promise.resolve(null);
+  }
 
-Pebble.addEventListener('ready', readyCallback);
-Pebble.addEventListener('showConfiguration', showConfiguration);
-Pebble.addEventListener('webviewclosed', webviewclosed);
-Pebble.addEventListener('appmessage', appmessage);
+  console.log('Starting LibreLinkUp fetch via ' + API.BASE_URL);
+
+  var baseUrl = API.BASE_URL;
+  var loginHeaders = {
+    'content-type': 'application/json',
+    product: API.PRODUCT,
+    version: API.VERSION,
+    'accept-encoding': 'gzip'
+  };
+
+  fetchInFlight = fetch(baseUrl + '/llu/auth/login', {
+    method: 'POST',
+    headers: loginHeaders,
+    body: JSON.stringify({ email: options.email, password: options.password })
+  })
+  .then(function(resp) {
+    if (!resp.ok) {
+      throw new Error('Login failed: HTTP ' + resp.status);
+    }
+    return resp.json().then(function(json) {
+      console.log('LibreLinkUp login status: ' + (json && json.status));
+      return json;
+    });
+  })
+  .then(function(json) {
+    if (json && typeof json.status !== 'undefined' && json.status !== 0) {
+      throw new Error('Login status ' + json.status);
+    }
+    var token = json && json.data && json.data.authTicket && json.data.authTicket.token;
+    var userId = json && json.data && json.data.user && json.data.user.id;
+    if (!token || !userId) {
+      throw new Error('Login response missing token or user id');
+    }
+    return sha256Hex(userId).then(function(accountId) {
+      return { token: token, accountId: accountId };
+    });
+  })
+  .then(function(auth) {
+    var headers = {
+      'content-type': 'application/json',
+      product: API.PRODUCT,
+      version: API.VERSION,
+      Authorization: 'Bearer ' + auth.token
+    };
+    if (auth.accountId) {
+      headers['Account-Id'] = auth.accountId;
+    }
+    console.log('Fetching LibreLinkUp connections');
+    return fetch(baseUrl + '/llu/connections', { headers: headers }).then(function(resp) {
+      return { resp: resp, headers: headers };
+    });
+  })
+  .then(function(result) {
+    var resp = result.resp;
+    if (!resp.ok) {
+      throw new Error('Connections failed: HTTP ' + resp.status);
+    }
+    return resp.json().then(function(json) {
+      var len = (json && json.data && json.data.length) || 0;
+      console.log('Connections received: ' + len);
+      return { json: json, headers: result.headers };
+    });
+  })
+  .then(function(payload) {
+    var json = payload.json;
+    var headers = payload.headers;
+    if (!json || !json.data || !json.data.length) {
+      throw new Error('No LibreLinkUp connections found');
+    }
+    var connection = json.data[0];
+    var patientId = connection.patientId;
+    console.log('LibreLinkUp connection found for patient ' + patientId);
+    var measurement = pickMeasurement(connection);
+    if (measurement && (measurement.ValueInMgPerDl || measurement.Value)) {
+      console.log('Using measurement from connections payload');
+      return { measurement: measurement, headers: headers, patientId: patientId };
+    }
+    console.log('No measurement in connections payload, fetching graph');
+    return fetch(baseUrl + '/llu/connections/' + patientId + '/graph', { headers: headers })
+      .then(function(resp) {
+        if (!resp.ok) {
+          throw new Error('Graph failed: HTTP ' + resp.status);
+        }
+        return resp.json();
+      })
+      .then(function(graphJson) {
+        var points = graphJson && graphJson.data && graphJson.data.graphData && graphJson.data.graphData.length;
+        console.log('Graph data points: ' + (points || 0));
+        var conn = graphJson && graphJson.data && graphJson.data.connection;
+        var graphMeasurement = pickMeasurement(conn);
+        return { measurement: graphMeasurement, headers: headers, patientId: patientId };
+      });
+  })
+  .then(function(result) {
+    var measurement = result && result.measurement;
+    if (!measurement) {
+      throw new Error('No glucose measurement available');
+    }
+
+    var value = measurement.ValueInMgPerDl || measurement.Value || 0;
+    var trend = (typeof measurement.TrendArrow !== 'undefined') ? measurement.TrendArrow : (typeof measurement.Trend !== 'undefined' ? measurement.Trend : -1);
+    var tsString = measurement.Timestamp || measurement.FactoryTimestamp;
+    var ts = tsString ? Math.floor(new Date(tsString).getTime() / 1000) : Math.floor(Date.now() / 1000);
+
+    updateGlucoseData(value, trend, ts);
+    console.log('LibreLinkUp glucose updated: ' + value + ' mg/dL, trend ' + trend + ', ts ' + ts);
+    return glucoseData;
+  })
+  .catch(function(err) {
+    console.log('LibreLinkUp fetch failed: ' + err.message);
+    return null;
+  })
+  .finally(function() {
+    fetchInFlight = null;
+  });
+
+  return fetchInFlight;
+}
+
+function logError(event) {
+  console.log('Unable to deliver message with transactionId=' +
+              event.data.transactionId + '; Error: ' + JSON.stringify(event.error));
+}
+
+function onReady(callback) {
+  if (isReady) {
+    callback();
+  }
+  else {
+    callbacks.push(callback);
+  }
+}
+
+// Register event listeners
+Pebble.addEventListener("ready", readyCallback);
+Pebble.addEventListener("showConfiguration", showConfiguration);
+Pebble.addEventListener("webviewclosed", webviewclosed);
+Pebble.addEventListener("appmessage", appmessage);
+
+// Send initial configuration on ready
+onReady(function(event) {
+  var message = prepareConfiguration(getOptions());
+  transmitConfiguration(message);
+  fetchGlucoseFromLibreLinkUp();
+});
+

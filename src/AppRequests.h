@@ -24,9 +24,13 @@ typedef enum {
 // Callback type for receiving glucose data
 typedef void (*GlucoseDataCallback)(int glucose_value, int trend_value);
 
+// Callback type for receiving settings (key, value)
+// This allows the main app to handle settings without AppSync conflicts
+typedef void (*SettingsCallback)(uint32_t key, int value);
+
 // Initialize message communication
 // Note: Call this BEFORE app_message_open() and AppSync init
-void pebble_messenger_init(GlucoseDataCallback callback);
+void pebble_messenger_init(GlucoseDataCallback glucose_callback, SettingsCallback settings_callback);
 
 // Allow re-registering handlers after AppSync sets its callbacks
 void pebble_messenger_register_handlers(void);

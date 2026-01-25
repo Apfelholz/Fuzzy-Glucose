@@ -974,6 +974,94 @@ static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tup
     }
 }
 
+// Callback for settings received directly from phone (bypasses AppSync)
+// This is called by the messenger when settings arrive
+static void settings_received_callback(uint32_t key, int value) {
+    GTextAlignment alignment;
+    
+    APP_LOG(APP_LOG_LEVEL_INFO, "Settings received: key=%lu, value=%d", (unsigned long)key, value);
+    
+    // Handle TEXT_ALIGN_KEY
+    if (key == TEXT_ALIGN_KEY) {
+        text_align = value;
+        persist_write_int(TEXT_ALIGN_KEY, text_align);
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "Set text alignment: %d", text_align);
+
+        alignment = lookup_text_alignment(text_align);
+        for (int i = 0; i < NUM_LINES; i++)
+        {
+            text_layer_set_text_alignment(lines[i].currentLayer, alignment);
+            text_layer_set_text_alignment(lines[i].nextLayer, alignment);
+            layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
+            layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
+        }
+        if (t) {
+            update_top_time_buffer(t);
+            update_bottom_status(t);
+        }
+        if (top_info_layer) {
+            layer_mark_dirty(top_info_layer);
+        }
+        if (bottom_date_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+        }
+        if (bottom_info_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+        }
+        if (bottom_arrow_layer) {
+            layer_mark_dirty(bottom_arrow_layer);
+        }
+    }
+    // Handle INVERT_KEY
+    else if (key == INVERT_KEY) {
+        invert = (value == 1);
+        persist_write_bool(INVERT_KEY, invert);
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "Set invert: %u", invert ? 1 : 0);
+        
+        // Update text layer colors for all lines
+        GColor text_color = invert ? GColorBlack : GColorWhite;
+        for (int i = 0; i < NUM_LINES; i++) {
+            text_layer_set_text_color(lines[i].currentLayer, text_color);
+            text_layer_set_text_color(lines[i].nextLayer, text_color);
+            layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
+            layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
+        }
+        
+        if (inverter_layer) {
+            layer_set_hidden(inverter_layer, !invert);
+            layer_mark_dirty(inverter_layer);
+        }
+        if (t) {
+            update_top_time_buffer(t);
+            update_bottom_status(t);
+        }
+        if (top_info_layer) {
+            layer_mark_dirty(top_info_layer);
+        }
+        apply_bottom_theme();
+        if (bottom_date_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+        }
+        if (bottom_info_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+        }
+        if (bottom_arrow_layer) {
+            layer_mark_dirty(bottom_arrow_layer);
+        }
+    }
+    // Handle LANGUAGE_KEY
+    else if (key == LANGUAGE_KEY) {
+        lang = (Language) value;
+        persist_write_int(LANGUAGE_KEY, lang);
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "Set language: %d", lang);
+
+        if (t)
+        {
+            display_time(t);
+        }
+    }
+}
+
 static void init_line(Line* line)
 {
 	// Create layers with dummy position to the right of the screen
@@ -1089,8 +1177,9 @@ static void window_load(Window *window)
 	app_sync_init(&sync, sync_buffer, sizeof(sync_buffer), initial_values, ARRAY_LENGTH(initial_values),
 			sync_tuple_changed_callback, sync_error_callback, NULL);
 
-	// Ensure our glucose handler runs before AppSync by re-registering after init
-	pebble_messenger_register_handlers();
+	// Note: We no longer re-register handlers here. Settings are now handled directly
+	// in the messenger's inbox callback via settings_received_callback, bypassing AppSync.
+	// AppSync is kept for backward compatibility but settings_received_callback is primary.
 }
 
 static void window_unload(Window *window)
@@ -1148,9 +1237,9 @@ static void handle_init() {
 		.pebble_app_connection_handler = bluetooth_handler
 	});
 
-	// Initialize messenger with callback for receiving glucose data
+	// Initialize messenger with callbacks for receiving glucose data and settings
 	// Note: Must be called BEFORE app_message_open()
-	pebble_messenger_init(glucose_data_received_callback);
+	pebble_messenger_init(glucose_data_received_callback, settings_received_callback);
 
 	window = window_create();
 	window_set_background_color(window, GColorBlack);

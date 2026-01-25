@@ -1,8 +1,16 @@
 #include "AppRequests.h"
 #include <time.h>
 
+// Settings keys (must match TextWatch.c and package.json)
+#define TEXT_ALIGN_KEY 0
+#define INVERT_KEY 1
+#define LANGUAGE_KEY 2
+
 // Callback for receiving glucose data from phone
 static GlucoseDataCallback s_glucose_callback = NULL;
+
+// Callback for receiving settings from phone
+static SettingsCallback s_settings_callback = NULL;
 
 // Stored glucose values (updated when received)
 static int s_glucose_value = 0;      // Default: no data
@@ -65,6 +73,37 @@ static void process_glucose_message(DictionaryIterator *iterator) {
   }
 }
 
+// Process settings from received message and forward to main app
+static void process_settings_message(DictionaryIterator *iterator) {
+  if (!s_settings_callback) {
+    return;
+  }
+
+  // Check for TEXT_ALIGN_KEY
+  Tuple *align_tuple = dict_find(iterator, TEXT_ALIGN_KEY);
+  if (align_tuple) {
+    int value = (int)align_tuple->value->int32;
+    APP_LOG(APP_LOG_LEVEL_INFO, "Settings: TEXT_ALIGN=%d", value);
+    s_settings_callback(TEXT_ALIGN_KEY, value);
+  }
+
+  // Check for INVERT_KEY
+  Tuple *invert_tuple = dict_find(iterator, INVERT_KEY);
+  if (invert_tuple) {
+    int value = (int)invert_tuple->value->int32;
+    APP_LOG(APP_LOG_LEVEL_INFO, "Settings: INVERT=%d", value);
+    s_settings_callback(INVERT_KEY, value);
+  }
+
+  // Check for LANGUAGE_KEY
+  Tuple *lang_tuple = dict_find(iterator, LANGUAGE_KEY);
+  if (lang_tuple) {
+    int value = (int)lang_tuple->value->int32;
+    APP_LOG(APP_LOG_LEVEL_INFO, "Settings: LANGUAGE=%d", value);
+    s_settings_callback(LANGUAGE_KEY, value);
+  }
+}
+
 // Callback when message received - handles both glucose and config messages
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
   APP_LOG(APP_LOG_LEVEL_DEBUG, "Message received from phone");
@@ -72,8 +111,11 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   // Process glucose data from this message
   process_glucose_message(iterator);
   
+  // Process settings from this message (bypasses AppSync)
+  process_settings_message(iterator);
+  
   // Forward to original handler (AppSync) if it exists
-  // This allows both AppSync (for settings) and our glucose handling to work
+  // Note: This may not work reliably with AppSync, but we handle settings above
   if (s_original_inbox_handler) {
     s_original_inbox_handler(iterator, context);
   }
@@ -140,13 +182,14 @@ bool pebble_messenger_has_glucose_data(void) {
 
 // Initialize message communication
 // Note: Call this BEFORE app_message_open() and AppSync init
-void pebble_messenger_init(GlucoseDataCallback callback) {
+void pebble_messenger_init(GlucoseDataCallback glucose_callback, SettingsCallback settings_callback) {
   if (s_initialized) {
     APP_LOG(APP_LOG_LEVEL_WARNING, "Messenger already initialized");
     return;
   }
   
-  s_glucose_callback = callback;
+  s_glucose_callback = glucose_callback;
+  s_settings_callback = settings_callback;
   s_glucose_value = 0;
   s_trend_value = -1;
   s_last_glucose_timestamp = 0;

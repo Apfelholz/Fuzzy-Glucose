@@ -452,23 +452,10 @@ static void makeAnimationsForLayer(Line *line, int delay) {
     TextLayer *current = line->currentLayer;
     TextLayer *next = line->nextLayer;
 
-    // Destroy old animations
-    if (line->animation1) {
-        Animation *anim1 = property_animation_get_animation(line->animation1);
-        if (anim1 && animation_is_scheduled(anim1)) {
-            animation_unschedule(anim1);
-        }
-        property_animation_destroy(line->animation1);
-        line->animation1 = NULL;
-    }
-    if (line->animation2) {
-        Animation *anim2 = property_animation_get_animation(line->animation2);
-        if (anim2 && animation_is_scheduled(anim2)) {
-            animation_unschedule(anim2);
-        }
-        property_animation_destroy(line->animation2);
-        line->animation2 = NULL;
-    }
+    // Clear old animation pointers (animations auto-destroy when finished)
+    // We don't manually destroy them since they may already be destroyed
+    line->animation1 = NULL;
+    line->animation2 = NULL;
 
     // --- Create first property animation (move current out) ---
     GRect rect_current = layer_get_frame((Layer *)current);
@@ -1278,24 +1265,10 @@ static void handle_deinit()
 	battery_state_service_unsubscribe();
 	pebble_messenger_deinit();
 	
-	// Destroy all animations before destroying window
+	// Clear animation pointers (animations auto-destroy when finished)
 	for (int i = 0; i < NUM_LINES; i++) {
-		if (lines[i].animation1) {
-			Animation *anim1 = property_animation_get_animation(lines[i].animation1);
-			if (anim1 && animation_is_scheduled(anim1)) {
-				animation_unschedule(anim1);
-			}
-			property_animation_destroy(lines[i].animation1);
-			lines[i].animation1 = NULL;
-		}
-		if (lines[i].animation2) {
-			Animation *anim2 = property_animation_get_animation(lines[i].animation2);
-			if (anim2 && animation_is_scheduled(anim2)) {
-				animation_unschedule(anim2);
-			}
-			property_animation_destroy(lines[i].animation2);
-			lines[i].animation2 = NULL;
-		}
+		lines[i].animation1 = NULL;
+		lines[i].animation2 = NULL;
 	}
 	
 	// Free window

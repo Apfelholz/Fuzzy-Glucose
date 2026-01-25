@@ -2,22 +2,15 @@ var VERSION = "1.3.0";
 var Clay = require('pebble-clay');
 var clayConfig = require('./config.json');
 var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
-var API = {
+const API = {
   BASE_URL: "https://api-eu.libreview.io",
   PRODUCT: "llu.android",
-  VERSION: "4.16.0",
-  REGION: "eu"
+  VERSION: "4.16.0"
 };
-var testCredentials;
-try {
-  testCredentials = require('./credentials.json');
-} catch (e) {
-  testCredentials = {};
-}
+var testCredentials = {};
 
 var isReady = false;
 var callbacks = [];
-var fetchInFlight = null;
 
 // Hardcoded default settings used when Clay has no stored values
 var DEFAULT_SETTINGS = {
@@ -47,22 +40,24 @@ var glucoseData = {
   trend: -1,
   timestamp: 0
 };
-
-// Minimal SHA-256 for environments without subtle crypto
-function simpleSha256(str) {
+// SHA256 für Account-Id (pure JS implementation)
+function sha256Hex(str) {
   function rightRotate(value, amount) {
     return (value >>> amount) | (value << (32 - amount));
   }
+
   var mathPow = Math.pow;
   var maxWord = mathPow(2, 32);
-  var lengthProperty = "length";
+  var lengthProperty = 'length';
   var i, j;
-  var result = "";
+  var result = '';
+
   var words = [];
-  var strBitLength = str[lengthProperty] * 8;
-  var hash = simpleSha256.h = simpleSha256.h || [];
-  var k = simpleSha256.k = simpleSha256.k || [];
-  var primeCounter = k[lengthProperty];
+  var asciiBitLength = str[lengthProperty] * 8;
+
+  var hash = [];
+  var k = [];
+  var primeCounter = 0;
 
   var isComposite = {};
   for (var candidate = 2; primeCounter < 64; candidate++) {
@@ -75,19 +70,15 @@ function simpleSha256(str) {
     }
   }
 
-  str += "\u0080";
-  while ((str[lengthProperty] % 64) - 56) {
-    str += "\u0000";
-  }
+  str += '\x80';
+  while ((str[lengthProperty] % 64) - 56) str += '\x00';
   for (i = 0; i < str[lengthProperty]; i++) {
     j = str.charCodeAt(i);
-    if (j >> 8) {
-      return null;
-    }
-    words[i >> 2] |= j << ((3 - i) % 4) * 8;
+    if (j >> 8) return;
+    words[i >> 2] |= j << (((3 - i) % 4) * 8);
   }
-  words[words[lengthProperty]] = (strBitLength / maxWord) | 0;
-  words[words[lengthProperty]] = strBitLength;
+  words[words[lengthProperty]] = (asciiBitLength / maxWord) | 0;
+  words[words[lengthProperty]] = asciiBitLength;
 
   for (j = 0; j < words[lengthProperty]; ) {
     var w = words.slice(j, (j += 16));
@@ -95,10 +86,8 @@ function simpleSha256(str) {
     hash = hash.slice(0, 8);
 
     for (i = 0; i < 64; i++) {
-      var w15 = w[i - 15];
-      var w2 = w[i - 2];
-      var a = hash[0];
-      var e = hash[4];
+      var w15 = w[i - 15], w2 = w[i - 2];
+      var a = hash[0], e = hash[4];
       var temp1 =
         hash[7] +
         (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
@@ -108,9 +97,10 @@ function simpleSha256(str) {
           i < 16
             ? w[i]
             : (w[i - 16] +
-               (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
-               w[i - 7] +
-               (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) | 0);
+                (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                w[i - 7] +
+                (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+              0);
       var temp2 =
         (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
         ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
@@ -127,25 +117,10 @@ function simpleSha256(str) {
   for (i = 0; i < 8; i++) {
     for (j = 3; j + 1; j--) {
       var b = (hash[i] >> (j * 8)) & 255;
-      result += (b < 16 ? 0 : "") + b.toString(16);
+      result += (b < 16 ? '0' : '') + b.toString(16);
     }
   }
   return result;
-}
-
-function sha256Hex(str) {
-  if (typeof crypto !== "undefined" && crypto.subtle && crypto.subtle.digest) {
-    var enc = new TextEncoder();
-    return crypto.subtle.digest("SHA-256", enc.encode(str)).then(function(buf) {
-      var out = "";
-      var view = new DataView(buf);
-      for (var i = 0; i < view.byteLength; i += 4) {
-        out += ("00000000" + view.getUint32(i).toString(16)).slice(-8);
-      }
-      return out;
-    });
-  }
-  return Promise.resolve(simpleSha256(str));
 }
 
 function readyCallback(event) {
@@ -179,6 +154,19 @@ function webviewclosed(event) {
     var message = prepareConfiguration(rawSettings);
     console.log('Sending message to watch: ' + JSON.stringify(message));
     sendSettingsToWatch(message);
+
+    // Fetch glucose data with new settings
+    var email = rawSettings.email || testCredentials.email;
+    var password = rawSettings.password || testCredentials.password;
+    fetchGlucoseFromLibreLinkUp(email, password).then(function(data) {
+      if (data) {
+        updateGlucoseData(data.value, data.trend, data.ts);
+      } else {
+        console.log('No glucose data fetched after settings save');
+      }
+    }).catch(function(err) {
+      console.log('Error fetching glucose after settings save: ' + err.message);
+    });
   } catch (e) {
     console.log('Error parsing configuration: ' + e.message + ' - ' + e.stack);
   }
@@ -255,9 +243,12 @@ function appmessage(event) {
 
   if (payload && payload[KEYS.KEY_REQUEST_DATA]) {
     console.log('Watch requested glucose data');
-    fetchGlucoseFromLibreLinkUp().then(function(data) {
+    var options = parseOptions();
+    var email = options.email || testCredentials.email;
+    var password = options.password || testCredentials.password;
+    fetchGlucoseFromLibreLinkUp(email, password).then(function(data) {
       if (data) {
-        sendGlucoseData();
+        updateGlucoseData(data.value, data.trend, data.ts);
       } else {
         console.log('No glucose data fetched');
       }
@@ -304,162 +295,187 @@ function updateGlucoseData(value, trend, timestamp) {
 
 Pebble.updateGlucose = updateGlucoseData;
 
+// Hilfsfunktion: letzte Messung
 function pickMeasurement(container) {
-  if (!container) return null;
-  var m = container.glucoseMeasurement || container.glucoseItem || container;
-  if (m && m.measurementData && m.measurementData.length) {
-    return m.measurementData[m.measurementData.length - 1];
-  }
-  return m;
-}
-function fetchGlucoseFromLibreLinkUp() {
-  if (fetchInFlight) {
-    return fetchInFlight;
+  if (!container) {
+    console.log("pickMeasurement: container is null");
+    return null;
   }
 
-  var options = parseOptions();
-  if (!options.email && testCredentials.email) {
-    options.email = testCredentials.email;
+  console.log("pickMeasurement: container keys = " + Object.keys(container).join(", "));
+
+  // Try to get measurement from various possible locations
+  var m = container.glucoseMeasurement || container.glucoseItem;
+  
+  if (m) {
+    console.log("pickMeasurement: found glucoseMeasurement/glucoseItem");
+    // Check if it has measurementData array
+    if (m.measurementData && Array.isArray(m.measurementData) && m.measurementData.length > 0) {
+      console.log("pickMeasurement: using measurementData array, length=" + m.measurementData.length);
+      return m.measurementData[m.measurementData.length - 1];
+    }
+    // Otherwise return the measurement object itself
+    return m;
   }
-  if (!options.password && testCredentials.password) {
-    options.password = testCredentials.password;
+  
+  // If no glucoseMeasurement/glucoseItem, the container might be the measurement itself
+  if (container.ValueInMgPerDl || container.Value) {
+    console.log("pickMeasurement: container is the measurement itself");
+    return container;
   }
-  if (!options.email || !options.password) {
-    console.log('LibreLinkUp credentials are missing');
+  
+  console.log("pickMeasurement: no measurement found in container");
+  return null;
+}
+// Fetch Glucose
+function fetchGlucoseFromLibreLinkUp(email, password) {
+  if (!email || !password) {
+    console.log("Credentials fehlen");
     return Promise.resolve(null);
   }
 
-  console.log('Starting LibreLinkUp fetch via ' + API.BASE_URL);
+  console.log("Starte LibreLinkUp Login...");
+  console.log("Email: " + email.substring(0, 3) + "***");
 
-  var baseUrl = API.BASE_URL;
+  // Always use DE region
+  var baseUrl = "https://api-de.libreview.io";
+  var token, accountId, authHeaders;
+
   var loginHeaders = {
-    'content-type': 'application/json',
-    product: API.PRODUCT,
-    version: API.VERSION,
-    'accept-encoding': 'gzip'
+    "Content-Type": "application/json",
+    "product": API.PRODUCT,
+    "version": API.VERSION
   };
 
-  fetchInFlight = fetch(baseUrl + '/llu/auth/login', {
-    method: 'POST',
-    headers: loginHeaders,
-    body: JSON.stringify({ email: options.email, password: options.password })
-  })
-  .then(function(resp) {
-    if (!resp.ok) {
-      throw new Error('Login failed: HTTP ' + resp.status);
-    }
-    return resp.json().then(function(json) {
-      console.log('LibreLinkUp login status: ' + (json && json.status));
-      return json;
-    });
-  })
-  .then(function(json) {
-    if (json && typeof json.status !== 'undefined' && json.status !== 0) {
-      throw new Error('Login status ' + json.status);
-    }
-    var token = json && json.data && json.data.authTicket && json.data.authTicket.token;
-    var userId = json && json.data && json.data.user && json.data.user.id;
-    if (!token || !userId) {
-      throw new Error('Login response missing token or user id');
-    }
-    return sha256Hex(userId).then(function(accountId) {
-      return { token: token, accountId: accountId };
-    });
-  })
-  .then(function(auth) {
-    var headers = {
-      'content-type': 'application/json',
-      product: API.PRODUCT,
-      version: API.VERSION,
-      Authorization: 'Bearer ' + auth.token
-    };
-    if (auth.accountId) {
-      headers['Account-Id'] = auth.accountId;
-    }
-    console.log('Fetching LibreLinkUp connections');
-    return fetch(baseUrl + '/llu/connections', { headers: headers }).then(function(resp) {
-      return { resp: resp, headers: headers };
-    });
-  })
-  .then(function(result) {
-    var resp = result.resp;
-    if (!resp.ok) {
-      throw new Error('Connections failed: HTTP ' + resp.status);
-    }
-    return resp.json().then(function(json) {
-      var len = (json && json.data && json.data.length) || 0;
-      console.log('Connections received: ' + len);
-      return { json: json, headers: result.headers };
-    });
-  })
-  .then(function(payload) {
-    var json = payload.json;
-    var headers = payload.headers;
-    if (!json || !json.data || !json.data.length) {
-      throw new Error('No LibreLinkUp connections found');
-    }
-    var connection = json.data[0];
-    var patientId = connection.patientId;
-    console.log('LibreLinkUp connection found for patient ' + patientId);
-    var measurement = pickMeasurement(connection);
-    if (measurement && (measurement.ValueInMgPerDl || measurement.Value)) {
-      console.log('Using measurement from connections payload');
-      return { measurement: measurement, headers: headers, patientId: patientId };
-    }
-    console.log('No measurement in connections payload, fetching graph');
-    return fetch(baseUrl + '/llu/connections/' + patientId + '/graph', { headers: headers })
-      .then(function(resp) {
-        if (!resp.ok) {
-          throw new Error('Graph failed: HTTP ' + resp.status);
+  // Helper function for XHR requests
+  function xhrRequest(url, method, headers, body) {
+    return new Promise(function(resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open(method, url, true);
+      
+      for (var key in headers) {
+        if (headers.hasOwnProperty(key)) {
+          xhr.setRequestHeader(key, headers[key]);
         }
-        return resp.json();
-      })
-      .then(function(graphJson) {
-        var points = graphJson && graphJson.data && graphJson.data.graphData && graphJson.data.graphData.length;
-        console.log('Graph data points: ' + (points || 0));
-        var conn = graphJson && graphJson.data && graphJson.data.connection;
-        var graphMeasurement = pickMeasurement(conn);
-        return { measurement: graphMeasurement, headers: headers, patientId: patientId };
-      });
-  })
-  .then(function(result) {
-    var measurement = result && result.measurement;
-    if (!measurement) {
-      throw new Error('No glucose measurement available');
-    }
+      }
+      
+      xhr.onload = function() {
+        console.log("XHR response: " + xhr.status + " from " + url);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            var json = JSON.parse(xhr.responseText);
+            resolve({ status: xhr.status, ok: true, json: json });
+          } catch (e) {
+            console.log("JSON parse error: " + e.message);
+            reject(new Error("JSON parse error"));
+          }
+        } else {
+          console.log("XHR error status: " + xhr.status);
+          reject(new Error("HTTP " + xhr.status));
+        }
+      };
+      
+      xhr.onerror = function() {
+        console.log("XHR network error");
+        reject(new Error("Network error"));
+      };
+      
+      xhr.ontimeout = function() {
+        console.log("XHR timeout");
+        reject(new Error("Timeout"));
+      };
+      
+      xhr.timeout = 30000;
+      
+      if (body) {
+        xhr.send(body);
+      } else {
+        xhr.send();
+      }
+    });
+  }
 
-    var value = measurement.ValueInMgPerDl || measurement.Value || 0;
-    var trend = (typeof measurement.TrendArrow !== 'undefined') ? measurement.TrendArrow : (typeof measurement.Trend !== 'undefined' ? measurement.Trend : -1);
-    var tsString = measurement.Timestamp || measurement.FactoryTimestamp;
-    var ts = tsString ? Math.floor(new Date(tsString).getTime() / 1000) : Math.floor(Date.now() / 1000);
+  // 1️⃣ Login
+  return xhrRequest(baseUrl + "/llu/auth/login", "POST", loginHeaders, JSON.stringify({ email: email, password: password }))
+    .then(function(result) {
+      var loginJson = result.json;
 
-    updateGlucoseData(value, trend, ts);
-    console.log('LibreLinkUp glucose updated: ' + value + ' mg/dL, trend ' + trend + ', ts ' + ts);
-    return glucoseData;
-  })
-  .catch(function(err) {
-    console.log('LibreLinkUp fetch failed: ' + err.message);
-    return null;
-  })
-  .finally(function() {
-    fetchInFlight = null;
-  });
+      console.log("Processing login result, status: " + loginJson.status);
+      if (loginJson.status !== 0) {
+        console.log("Login failed: json.status=" + loginJson.status);
+        throw new Error("Login fehlgeschlagen");
+      }
 
-  return fetchInFlight;
+      token = loginJson.data && loginJson.data.authTicket && loginJson.data.authTicket.token;
+      var userId = loginJson.data && loginJson.data.user && loginJson.data.user.id;
+      console.log("Token present: " + !!token + ", userId present: " + !!userId);
+      if (!token || !userId) {
+        throw new Error("Token oder User ID fehlt");
+      }
+
+      accountId = sha256Hex(userId);
+      console.log("AccountId generated, fetching connections...");
+
+      // 2️⃣ Connections abrufen
+      authHeaders = {
+        "Content-Type": "application/json",
+        "product": API.PRODUCT,
+        "version": API.VERSION,
+        "Authorization": "Bearer " + token,
+        "Account-Id": accountId
+      };
+
+      return xhrRequest(baseUrl + "/llu/connections", "GET", authHeaders, null);
+    })
+    .then(function(result) {
+      var connJson = result.json;
+      console.log("Connections response status: " + connJson.status);
+      if (!connJson.data || !connJson.data.length) {
+        throw new Error("Keine Connections gefunden");
+      }
+
+      var connection = connJson.data[0];
+      console.log("Connection found, patientId: " + connection.patientId);
+
+      // 3️⃣ Letzte Messung auslesen
+      var measurement = pickMeasurement(connection);
+
+      // Wenn keine Messung vorhanden, Graph abfragen
+      if (!measurement || (!measurement.ValueInMgPerDl && !measurement.Value)) {
+        console.log("No direct measurement, fetching graph...");
+        var patientId = connection.patientId;
+        return xhrRequest(baseUrl + "/llu/connections/" + patientId + "/graph", "GET", authHeaders, null)
+          .then(function(graphResult) {
+            console.log("Graph response received");
+            var connGraph = graphResult.json.data && graphResult.json.data.connection;
+            return pickMeasurement(connGraph);
+          });
+      }
+
+      return measurement;
+    })
+    .then(function(measurement) {
+      if (!measurement) {
+        throw new Error("Keine Messung gefunden");
+      }
+
+      var value = measurement.ValueInMgPerDl || measurement.Value;
+      var trend = measurement.TrendArrow !== undefined ? measurement.TrendArrow : (measurement.Trend !== undefined ? measurement.Trend : -1);
+      var tsString = measurement.Timestamp || measurement.FactoryTimestamp;
+      var ts = tsString ? Math.floor(new Date(tsString).getTime() / 1000) : Math.floor(Date.now() / 1000);
+
+      console.log("Measurement extracted: value=" + value + ", trend=" + trend);
+      return { value: value, trend: trend, ts: ts };
+    })
+    .catch(function(err) {
+      console.log("Fetch fehlgeschlagen: " + err.message);
+      return null;
+    });
 }
 
 function logError(event) {
   console.log('Unable to deliver message with transactionId=' +
               event.data.transactionId + '; Error: ' + JSON.stringify(event.error));
-}
-
-function onReady(callback) {
-  if (isReady) {
-    callback();
-  }
-  else {
-    callbacks.push(callback);
-  }
 }
 
 // Register event listeners
@@ -472,6 +488,23 @@ Pebble.addEventListener("appmessage", appmessage);
 onReady(function(event) {
   var message = prepareConfiguration(getOptions());
   transmitConfiguration(message);
-  fetchGlucoseFromLibreLinkUp();
+  var options = parseOptions();
+  var email = options.email;
+  var password = options.password;
+  if (!email) {
+    email = testCredentials.email;
+  }
+  if (!password) {
+    password = testCredentials.password;
+  }
+  fetchGlucoseFromLibreLinkUp(email, password).then(function(data) {
+    if (data) {
+      updateGlucoseData(data.value, data.trend, data.ts);
+    } else {
+      console.log('No glucose data fetched at startup');
+    }
+  }).catch(function(err) {
+    console.log('Error fetching glucose at startup: ' + err.message);
+  });
 });
 

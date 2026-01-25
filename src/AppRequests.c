@@ -2,8 +2,8 @@
 #include <time.h>
 
 // Settings keys (must match TextWatch.c and package.json)
-#define TEXT_ALIGN_KEY 0
-#define INVERT_KEY 1
+#define INVERT_KEY 0
+#define TEXT_ALIGN_KEY 1
 #define LANGUAGE_KEY 2
 
 // Callback for receiving glucose data from phone

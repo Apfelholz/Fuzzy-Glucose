@@ -1,12 +1,15 @@
 {
-  "name": "Fuzzy Text Int'l",
-  "author": "Jesse Hallett",
-  "version": "1.3.0",
+  "name": "Fuzzy Text INFO",
+  "author": "Jonathan Salomo",
+  "version": "1.0.0",
   "private": true,
   "keywords": [
     "pebble-app"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "clay": "^1.0.0",
+    "pebble-clay": "^1.0.4"
+  },
   "pebble": {
     "sdkVersion": "3",
     "targetPlatforms": [
@@ -17,6 +20,7 @@
       "configurable"
     ],
     "projectType": "native",
+    "clayConfig": "src/pkjs/config.js",
     "displayName": "Fuzzy Text INFO",
     "uuid": "11490515-3888-4583-9e40-367ed931571d",
     "watchapp": {
@@ -27,7 +31,15 @@
     "resources": {
       "media": []
     },
-    "messageKeys": {}
+    "messageKeys": {
+      "INVERT_KEY": 0,
+      "TEXT_ALIGN_KEY": 1,
+      "LANGUAGE_KEY": 2,
+      "KEY_GLUCOSE_VALUE": 10,
+      "KEY_TREND_VALUE": 11,
+      "KEY_REQUEST_DATA": 12,
+      "KEY_TIMESTAMP": 13
+    }
   },
   "ContactName": 0,
   "Age": 1

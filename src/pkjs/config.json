@@ -1,0 +1,105 @@
+[
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Display Settings"
+      },
+      {
+        "type": "toggle",
+        "messageKey": "INVERT",
+        "label": "Invert Colors",
+        "defaultValue": false
+      },
+      {
+        "type": "select",
+        "messageKey": "TEXT_ALIGN",
+        "label": "Text Alignment",
+        "defaultValue": "0",
+        "options": [
+          { "label": "Center", "value": "0" },
+          { "label": "Left", "value": "1" },
+          { "label": "Right", "value": "2" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "LANGUAGE",
+        "label": "Language",
+        "defaultValue": "3",
+        "options": [
+          { "label": "Català", "value": "0" },
+          { "label": "Deutsch", "value": "1" },
+          { "label": "English (Great Britain)", "value": "2" },
+          { "label": "English (United States)", "value": "3" },
+          { "label": "Español", "value": "4" },
+          { "label": "Français", "value": "5" },
+          { "label": "Norsk", "value": "6" },
+          { "label": "Svenska", "value": "7" }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "LibreLinkUp Account"
+      },
+      {
+        "type": "input",
+        "messageKey": "email",
+        "label": "Email",
+        "attributes": {
+          "placeholder": "your@email.com",
+          "type": "email"
+        }
+      },
+      {
+        "type": "input",
+        "messageKey": "password",
+        "label": "Password",
+        "attributes": {
+          "placeholder": "Your password",
+          "type": "password"
+        }
+      },
+      {
+        "type": "select",
+        "messageKey": "region",
+        "label": "Region",
+        "defaultValue": "eu",
+        "options": [
+          { "label": "Europe (eu)", "value": "eu" },
+          { "label": "United States (us)", "value": "us" },
+          { "label": "Asia-Pacific (ae)", "value": "ae" },
+          { "label": "Asia-Pacific (ap)", "value": "ap" },
+          { "label": "Australia (au)", "value": "au" },
+          { "label": "Canada (ca)", "value": "ca" },
+          { "label": "Germany (de)", "value": "de" },
+          { "label": "France (fr)", "value": "fr" },
+          { "label": "Japan (jp)", "value": "jp" }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "About"
+      },
+      {
+        "type": "text",
+        "defaultValue": "Fuzzy Text International v1.3.0 with LibreLinkUp integration"
+      },
+      {
+        "type": "submit",
+        "defaultValue": "Save Settings"
+      }
+    ]
+  }
+]

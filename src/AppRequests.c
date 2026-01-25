@@ -10,7 +10,7 @@ static int s_trend_value = -1;       // Default: unknown trend (-1)
 static time_t s_last_glucose_timestamp = 0;  // Unix time of last valid data
 static time_t s_last_request_timestamp = 0;  // Unix time of last request sent
 static const time_t GLUCOSE_STALE_SECONDS = 15 * 60;  // Consider data stale after 15 minutes
-static const time_t GLUCOSE_REQUEST_THROTTLE_SECONDS = 0;  // Throttle disabled
+static const time_t GLUCOSE_REQUEST_THROTTLE_SECONDS = 300;  // 5 minutes between requests
 static bool s_initialized = false;
 
 // Forward declaration for AppSync callback compatibility
@@ -186,7 +186,9 @@ void pebble_messenger_request_glucose(void) {
   time_t now = time(NULL);
   if (now != (time_t)-1 && s_last_request_timestamp != 0) {
     if ((now - s_last_request_timestamp) < GLUCOSE_REQUEST_THROTTLE_SECONDS) {
-      // Throttling disabled; allow request to proceed
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "Glucose request throttled (last request %ld seconds ago)", 
+              (long)(now - s_last_request_timestamp));
+      return;
     }
   }
   

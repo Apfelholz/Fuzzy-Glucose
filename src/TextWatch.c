@@ -4,8 +4,6 @@
 #include "num2words.h"
 #include "AppRequests.h"
 
-
-
 #define NUM_LINES 4
 #define LINE_LENGTH 7
 #define BUFFER_SIZE (LINE_LENGTH + 2)
@@ -18,6 +16,7 @@
 #define DATE_BUFFER_SIZE 16
 #define INFO_BUFFER_SIZE 24
 
+// Message keys must match package.json messageKeys
 #define INVERT_KEY 0
 #define TEXT_ALIGN_KEY 1
 #define LANGUAGE_KEY 2
@@ -363,10 +362,7 @@ static void update_bottom_status(struct tm *time) {
 		bottom_date_buffer[sizeof(bottom_date_buffer) - 1] = '\0';
 	}
 	
-	// Request fresh glucose data from phone
-	pebble_messenger_request_glucose();
-	
-	// Get glucose data from messenger
+	// Get glucose data from messenger (don't request here - requests happen every 5 min in tick handler)
 	int glucose_value = 0;
 	int trend_value = TREND_UNKNOWN;
 	get_glucose_data(&glucose_value, &trend_value);
@@ -458,10 +454,18 @@ static void makeAnimationsForLayer(Line *line, int delay) {
 
     // Destroy old animations
     if (line->animation1) {
+        Animation *anim1 = property_animation_get_animation(line->animation1);
+        if (anim1 && animation_is_scheduled(anim1)) {
+            animation_unschedule(anim1);
+        }
         property_animation_destroy(line->animation1);
         line->animation1 = NULL;
     }
     if (line->animation2) {
+        Animation *anim2 = property_animation_get_animation(line->animation2);
+        if (anim2 && animation_is_scheduled(anim2)) {
+            animation_unschedule(anim2);
+        }
         property_animation_destroy(line->animation2);
         line->animation2 = NULL;
     }
@@ -786,6 +790,9 @@ static void display_initial_time(struct tm *t)
 	time_to_lines(t->tm_hour, t->tm_min, t->tm_sec, textLine, format);
 	update_top_time_buffer(t);
 	update_bottom_status(t);
+	
+	// Request initial glucose data
+	pebble_messenger_request_glucose();
 
 	// Ensure bottom info layers are marked dirty to be rendered
 	if (bottom_date_layer) {
@@ -820,6 +827,11 @@ static void handle_minute_tick(struct tm *tick_time, TimeUnits units_changed)
   }
   
 	display_time(tick_time);
+	
+	// Request glucose data every 5 minutes (at 0, 5, 10, 15, etc.)
+	if (tick_time->tm_min % 5 == 0) {
+		pebble_messenger_request_glucose();
+	}
 }
 
 /**
@@ -880,82 +892,85 @@ static void sync_error_callback(DictionaryResult dict_error, AppMessageResult ap
 
 static void sync_tuple_changed_callback(const uint32_t key, const Tuple* new_tuple, const Tuple* old_tuple, void* context) {
     GTextAlignment alignment;
-    switch (key) {
-        case TEXT_ALIGN_KEY:
-            text_align = new_tuple->value->uint8;
-            persist_write_int(TEXT_ALIGN_KEY, text_align);
-            APP_LOG(APP_LOG_LEVEL_DEBUG, "Set text alignment: %u", text_align);
+    
+    // Handle TEXT_ALIGN_KEY
+    if (key == TEXT_ALIGN_KEY) {
+        text_align = new_tuple->value->uint8;
+        persist_write_int(TEXT_ALIGN_KEY, text_align);
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "Set text alignment: %u", text_align);
 
-            alignment = lookup_text_alignment(text_align);
-            for (int i = 0; i < NUM_LINES; i++)
-            {
-                text_layer_set_text_alignment(lines[i].currentLayer, alignment);
-                text_layer_set_text_alignment(lines[i].nextLayer, alignment);
-                layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
-                layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
-            }
-            if (t) {
-                update_top_time_buffer(t);
-                update_bottom_status(t);
-            }
-            if (top_info_layer) {
-                layer_mark_dirty(top_info_layer);
-            }
-            if (bottom_date_layer) {
-                layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
-            }
-            if (bottom_info_layer) {
-                layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
-            }
-            if (bottom_arrow_layer) {
-                layer_mark_dirty(bottom_arrow_layer);
-            }
-            break;
-        case INVERT_KEY:
-            invert = new_tuple->value->uint8 == 1;
-            persist_write_bool(INVERT_KEY, invert);
-            APP_LOG(APP_LOG_LEVEL_DEBUG, "Set invert: %u", invert ? 1 : 0);
-            
-            // Update text layer colors for all lines
-            GColor text_color = invert ? GColorBlack : GColorWhite;
-            for (int i = 0; i < NUM_LINES; i++) {
-                text_layer_set_text_color(lines[i].currentLayer, text_color);
-                text_layer_set_text_color(lines[i].nextLayer, text_color);
-                layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
-                layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
-            }
-            
-            if (inverter_layer) {
-                layer_set_hidden(inverter_layer, !invert);
-                layer_mark_dirty(inverter_layer);
-            }
-            if (t) {
-                update_top_time_buffer(t);
-                update_bottom_status(t);
-            }
-            if (top_info_layer) {
-                layer_mark_dirty(top_info_layer);
-            }
-            apply_bottom_theme();
-            if (bottom_date_layer) {
-                layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
-            }
-            if (bottom_info_layer) {
-                layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
-            }
-            if (bottom_arrow_layer) {
-                layer_mark_dirty(bottom_arrow_layer);
-            }
-            break;
-        case LANGUAGE_KEY:
-            lang = (Language) new_tuple->value->uint8;
-            persist_write_int(LANGUAGE_KEY, lang);
-            APP_LOG(APP_LOG_LEVEL_DEBUG, "Set language: %u", lang);
+        alignment = lookup_text_alignment(text_align);
+        for (int i = 0; i < NUM_LINES; i++)
+        {
+            text_layer_set_text_alignment(lines[i].currentLayer, alignment);
+            text_layer_set_text_alignment(lines[i].nextLayer, alignment);
+            layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
+            layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
+        }
+        if (t) {
+            update_top_time_buffer(t);
+            update_bottom_status(t);
+        }
+        if (top_info_layer) {
+            layer_mark_dirty(top_info_layer);
+        }
+        if (bottom_date_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+        }
+        if (bottom_info_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+        }
+        if (bottom_arrow_layer) {
+            layer_mark_dirty(bottom_arrow_layer);
+        }
+    }
+    // Handle INVERT_KEY
+    else if (key == INVERT_KEY) {
+        invert = new_tuple->value->uint8 == 1;
+        persist_write_bool(INVERT_KEY, invert);
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "Set invert: %u", invert ? 1 : 0);
+        
+        // Update text layer colors for all lines
+        GColor text_color = invert ? GColorBlack : GColorWhite;
+        for (int i = 0; i < NUM_LINES; i++) {
+            text_layer_set_text_color(lines[i].currentLayer, text_color);
+            text_layer_set_text_color(lines[i].nextLayer, text_color);
+            layer_mark_dirty(text_layer_get_layer(lines[i].currentLayer));
+            layer_mark_dirty(text_layer_get_layer(lines[i].nextLayer));
+        }
+        
+        if (inverter_layer) {
+            layer_set_hidden(inverter_layer, !invert);
+            layer_mark_dirty(inverter_layer);
+        }
+        if (t) {
+            update_top_time_buffer(t);
+            update_bottom_status(t);
+        }
+        if (top_info_layer) {
+            layer_mark_dirty(top_info_layer);
+        }
+        apply_bottom_theme();
+        if (bottom_date_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_date_layer));
+        }
+        if (bottom_info_layer) {
+            layer_mark_dirty(text_layer_get_layer(bottom_info_layer));
+        }
+        if (bottom_arrow_layer) {
+            layer_mark_dirty(bottom_arrow_layer);
+        }
+    }
+    // Handle LANGUAGE_KEY
+    else if (key == LANGUAGE_KEY) {
+        lang = (Language) new_tuple->value->uint8;
+        persist_write_int(LANGUAGE_KEY, lang);
+        APP_LOG(APP_LOG_LEVEL_DEBUG, "Set language: %u", lang);
 
-            if (t)
-            {
-                display_time(t);
-            }
+        if (t)
+        {
+            display_time(t);
+        }
     }
 }
 
@@ -1054,10 +1069,21 @@ static void window_load(Window *window)
 
 	display_initial_time(t);
 
+	// Load persisted settings before AppSync init
+	if (persist_exists(TEXT_ALIGN_KEY)) {
+		text_align = persist_read_int(TEXT_ALIGN_KEY);
+	}
+	if (persist_exists(INVERT_KEY)) {
+		invert = persist_read_bool(INVERT_KEY);
+	}
+	if (persist_exists(LANGUAGE_KEY)) {
+		lang = persist_read_int(LANGUAGE_KEY);
+	}
+
 	Tuplet initial_values[] = {
-		TupletInteger(TEXT_ALIGN_KEY, (uint8_t) text_align),
-		TupletInteger(INVERT_KEY,     (uint8_t) invert ? 1 : 0),
-		TupletInteger(LANGUAGE_KEY,   (uint8_t) lang)
+		TupletInteger(TEXT_ALIGN_KEY, text_align),        // Persistierter Wert
+		TupletInteger(INVERT_KEY, invert ? 1 : 0),       // Persistierter Wert
+		TupletInteger(LANGUAGE_KEY, lang)                // Persistierter Wert
 	};
 
 	app_sync_init(&sync, sync_buffer, sizeof(sync_buffer), initial_values, ARRAY_LENGTH(initial_values),
@@ -1109,22 +1135,7 @@ static void window_unload(Window *window)
 }
 
 static void handle_init() {
-	// Load settings from persistent storage
-	if (persist_exists(TEXT_ALIGN_KEY))
-	{
-		text_align = persist_read_int(TEXT_ALIGN_KEY);
-		APP_LOG(APP_LOG_LEVEL_DEBUG, "Read text alignment from store: %u", text_align);
-	}
-	if (persist_exists(INVERT_KEY))
-	{
-		invert = persist_read_bool(INVERT_KEY);
-		APP_LOG(APP_LOG_LEVEL_DEBUG, "Read invert from store: %u", invert ? 1 : 0);
-	}
-	if (persist_exists(LANGUAGE_KEY))
-	{
-		lang = (Language) persist_read_int(LANGUAGE_KEY);
-		APP_LOG(APP_LOG_LEVEL_DEBUG, "Read language from store: %u", lang);
-	}
+	// Settings loaded in window_load before AppSync init
 
 	snprintf(top_time_buffer, sizeof(top_time_buffer), "--:--");
 	bottom_date_buffer[0] = '\0';
@@ -1177,6 +1188,27 @@ static void handle_deinit()
 	connection_service_unsubscribe();
 	battery_state_service_unsubscribe();
 	pebble_messenger_deinit();
+	
+	// Destroy all animations before destroying window
+	for (int i = 0; i < NUM_LINES; i++) {
+		if (lines[i].animation1) {
+			Animation *anim1 = property_animation_get_animation(lines[i].animation1);
+			if (anim1 && animation_is_scheduled(anim1)) {
+				animation_unschedule(anim1);
+			}
+			property_animation_destroy(lines[i].animation1);
+			lines[i].animation1 = NULL;
+		}
+		if (lines[i].animation2) {
+			Animation *anim2 = property_animation_get_animation(lines[i].animation2);
+			if (anim2 && animation_is_scheduled(anim2)) {
+				animation_unschedule(anim2);
+			}
+			property_animation_destroy(lines[i].animation2);
+			lines[i].animation2 = NULL;
+		}
+	}
+	
 	// Free window
 	window_destroy(window);
 }

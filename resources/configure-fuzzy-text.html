@@ -9,7 +9,7 @@
   ================================================== -->
 	<meta charset="utf-8">
 	<title>Configure Fuzzy Text</title>
-	<meta name="description" content="configuration page for Fuzzy Text International, a Pebble watchface">
+	<meta name="description" content="configuration page for Fuzzy Text Info, a Pebble watchface">
 	<meta name="author" content="Jesse Hallett <jesse@sitr.us>">
 
 	<!-- Mobile Specific Metas
@@ -34,18 +34,6 @@
 		<header>
 			<h1>Configure Fuzzy Text Int'l</h1>
 		</header>
-		
-		<div id="update-available" class="hidden bg-danger" style="padding:0.75em">
-			<p>There is a new version of Fuzzy Text International
-			available - some settings will not work until you update to
-			the new version. <a href="CHANGES.html">See
-			details</a></p>
-		</div>
-
-		<div id="up-to-date" class="hidden bg-info" style="padding:0.75em">
-			<p>Your version of Fuzzy Text International is up-to-date.
-			<a href="CHANGES.html">See changes</a></p>
-		</div>
 
 		<form id="config" role="form" class="input-lg">
 
@@ -150,6 +138,21 @@
 					<label for="password">Password</label>
 					<input type="password" class="form-control" id="password" name="password" placeholder="••••••••" autocomplete="current-password" />
 				</div>
+				<div class="form-group">
+					<label for="region">Region</label>
+					<select class="form-control" id="region" name="region">
+						<option value="eu" selected>Europe (eu)</option>
+						<option value="us">United States (us)</option>
+						<option value="ae">Asia-Pacific (ae)</option>
+						<option value="ap">Asia-Pacific (ap)</option>
+						<option value="au">Australia (au)</option>
+						<option value="ca">Canada (ca)</option>
+						<option value="de">Germany (de)</option>
+						<option value="fr">France (fr)</option>
+						<option value="jp">Japan (jp)</option>
+					</select>
+					<p class="help-block">Select the LibreLinkUp server region for your account</p>
+				</div>
 			</fieldset>
 
 			<fieldset>
@@ -165,8 +168,6 @@
 
 	<script src="http://code.jquery.com/jquery-1.11.0.min.js"></script>
 	<script>
-		var LATEST = "1.2.1";
-
 		function saveOptions() {
 			var params = {};
 			$('#config').serializeArray().forEach(function(pair) {
@@ -178,7 +179,8 @@
 				text_align:	params.align || 'center',
 				lang:		params.lang,
 				email:		params.email || '',
-				password:	params.password || ''
+				password:	params.password || '',
+				region:		params.region || 'eu'
 			}
 			return options;
 		}
@@ -205,6 +207,9 @@
 			if (opts && typeof opts.password !== 'undefined') {
 				$form.find('[name="password"]').val(opts.password);
 			}
+			if (opts && typeof opts.region !== 'undefined') {
+				$form.find('[name="region"]').val(opts.region);
+			}
 		}
 
 		function getParam(key) {
@@ -218,25 +223,10 @@
 			return val;
 		}
 
-		function parseVersion(verStr) {
-			var parts = verStr.split('.');
-			return parts.reduce(function(sum, part) {
-				return (sum * 1000) + parseInt(part, 10);
-			}, 0);
-		}
-
 		$("#b-submit").click(function() {
 			var location = "pebblejs://close#" + encodeURIComponent(JSON.stringify(saveOptions()));
 			document.location = location;
 		});
-
-		var version = getParam('v');
-		if (!version || (parseVersion(version) < parseVersion(LATEST))) {
-			$('#update-available').removeClass('hidden');
-		}
-		else {
-			$('#up-to-date').removeClass('hidden');
-		}
 
 		applyOptions();
    </script>

@@ -40,6 +40,86 @@ var glucoseData = {
   trend: -1,
   timestamp: 0
 };
+
+// Cache configuration
+var CACHE_KEY = 'glucose_cache';
+var CACHE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes - glucose updates every 15 min
+
+// Glucose cache functions
+function getCachedGlucose() {
+  try {
+    var cached = localStorage.getItem(CACHE_KEY);
+    if (!cached) {
+      console.log('No cached glucose data found');
+      return null;
+    }
+    
+    var data = JSON.parse(cached);
+    var age = Date.now() - data.cachedAt;
+    
+    if (age > CACHE_MAX_AGE_MS) {
+      console.log('Cached glucose data expired (age: ' + Math.round(age / 1000) + 's)');
+      return null;
+    }
+    
+    console.log('Using cached glucose data (age: ' + Math.round(age / 1000) + 's)');
+    return data;
+  } catch (e) {
+    console.log('Error reading glucose cache: ' + e.message);
+    return null;
+  }
+}
+
+function setCachedGlucose(value, trend, timestamp) {
+  try {
+    var data = {
+      value: value,
+      trend: trend,
+      timestamp: timestamp,
+      cachedAt: Date.now()
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    console.log('Glucose data cached');
+  } catch (e) {
+    console.log('Error caching glucose data: ' + e.message);
+  }
+}
+
+function clearGlucoseCache() {
+  try {
+    localStorage.removeItem(CACHE_KEY);
+    console.log('Glucose cache cleared');
+  } catch (e) {
+    console.log('Error clearing glucose cache: ' + e.message);
+  }
+}
+
+// Main function to get glucose data - uses cache when available
+// forceRefresh: if true, bypasses cache and fetches fresh data from API
+// credentials: optional {email, password} - if provided, uses these instead of getCredentials()
+function getGlucoseData(forceRefresh, credentials) {
+  // Check cache first (unless force refresh)
+  if (!forceRefresh) {
+    var cached = getCachedGlucose();
+    if (cached) {
+      console.log('Returning cached glucose: ' + cached.value + ' mg/dL');
+      return Promise.resolve({ value: cached.value, trend: cached.trend, ts: cached.timestamp });
+    }
+  }
+  
+  // Get credentials - use provided ones or fetch from storage
+  var creds;
+  if (credentials && credentials.email && credentials.password) {
+    creds = credentials;
+    console.log('getGlucoseData: using provided credentials');
+  } else {
+    creds = getCredentials();
+  }
+  
+  // Fetch fresh data from API
+  return fetchGlucoseFromLibreLinkUp(creds.email, creds.password);
+}
+
 // SHA256 für Account-Id (pure JS implementation)
 function sha256Hex(str) {
   function rightRotate(value, amount) {
@@ -147,18 +227,33 @@ function webviewclosed(event) {
     // Use convert=false to get raw settings with readable keys
     var rawSettings = clay.getSettings(event.response, false);
     console.log('Clay raw settings: ' + JSON.stringify(rawSettings));
+    console.log('Clay email type: ' + typeof rawSettings.email + ', value: ' + JSON.stringify(rawSettings.email));
+    console.log('Clay password type: ' + typeof rawSettings.password + ', value: ' + (rawSettings.password ? '***' : 'undefined'));
 
     localStorage.setItem('options', JSON.stringify(rawSettings));
+    console.log('Stored options to localStorage');
+
+    // Extract credentials directly from rawSettings (handle both direct and wrapped values)
+    var email = rawSettings.email;
+    if (email && typeof email === 'object') {
+      email = email.value;
+    }
+    var password = rawSettings.password;
+    if (password && typeof password === 'object') {
+      password = password.value;
+    }
+    console.log('Extracted credentials - email: ' + (email ? email.substring(0, 3) + '***' : 'undefined'));
+
+    // Clear cache when settings change (credentials may have changed)
+    clearGlucoseCache();
 
     // Build message using the normalized helper so defaults are applied when missing
     var message = prepareConfiguration(rawSettings);
     console.log('Sending message to watch: ' + JSON.stringify(message));
     sendSettingsToWatch(message);
 
-    // Fetch glucose data with new settings
-    var email = rawSettings.email || testCredentials.email;
-    var password = rawSettings.password || testCredentials.password;
-    fetchGlucoseFromLibreLinkUp(email, password).then(function(data) {
+    // Fetch fresh glucose data with new settings (pass credentials directly)
+    getGlucoseData(true, { email: email, password: password }).then(function(data) {
       if (data) {
         updateGlucoseData(data.value, data.trend, data.ts);
       } else {
@@ -191,11 +286,43 @@ function getOptions() {
 
 function parseOptions() {
   try {
-    return JSON.parse(getOptions());
+    var raw = getOptions();
+    console.log('parseOptions raw: ' + raw);
+    var parsed = JSON.parse(raw);
+    console.log('parseOptions parsed keys: ' + Object.keys(parsed).join(', '));
+    return parsed;
   } catch (e) {
-    console.log('Error parsing stored options, using defaults');
+    console.log('Error parsing stored options, using defaults: ' + e.message);
     return {};
   }
+}
+
+// Unified credential retrieval - single source of truth
+function getCredentials() {
+  var options = parseOptions();
+  
+  // Clay may store values directly or wrapped in {value: ...} objects
+  var email = options.email;
+  if (email && typeof email === 'object') {
+    email = email.value;
+  }
+  
+  var password = options.password;
+  if (password && typeof password === 'object') {
+    password = password.value;
+  }
+  
+  console.log('getCredentials: email=' + (email ? email.substring(0, 3) + '***' : 'undefined') + ', password=' + (password ? '***' : 'undefined'));
+  
+  // Fallback to test credentials if not configured
+  if (!email && testCredentials.email) {
+    email = testCredentials.email;
+  }
+  if (!password && testCredentials.password) {
+    password = testCredentials.password;
+  }
+  
+  return { email: email, password: password };
 }
 
 // Normalize Clay settings, applying defaults when no value was provided
@@ -243,10 +370,8 @@ function appmessage(event) {
 
   if (payload && payload[KEYS.KEY_REQUEST_DATA]) {
     console.log('Watch requested glucose data');
-    var options = parseOptions();
-    var email = options.email || testCredentials.email;
-    var password = options.password || testCredentials.password;
-    fetchGlucoseFromLibreLinkUp(email, password).then(function(data) {
+    // Use cache when available (no force refresh - this is the main use case for caching)
+    getGlucoseData(false).then(function(data) {
       if (data) {
         updateGlucoseData(data.value, data.trend, data.ts);
       } else {
@@ -287,6 +412,9 @@ function updateGlucoseData(value, trend, timestamp) {
   glucoseData.trend = (typeof trend !== 'undefined') ? trend : -1;
   glucoseData.timestamp = timestamp || Math.floor(Date.now() / 1000);
   console.log('Glucose updated: ' + glucoseData.value + ' mg/dL, trend: ' + glucoseData.trend);
+
+  // Cache the glucose data
+  setCachedGlucose(glucoseData.value, glucoseData.trend, glucoseData.timestamp);
 
   onReady(function() {
     sendGlucoseData();
@@ -488,16 +616,9 @@ Pebble.addEventListener("appmessage", appmessage);
 onReady(function(event) {
   var message = prepareConfiguration(getOptions());
   transmitConfiguration(message);
-  var options = parseOptions();
-  var email = options.email;
-  var password = options.password;
-  if (!email) {
-    email = testCredentials.email;
-  }
-  if (!password) {
-    password = testCredentials.password;
-  }
-  fetchGlucoseFromLibreLinkUp(email, password).then(function(data) {
+  
+  // Use cache on startup for faster loading
+  getGlucoseData(false).then(function(data) {
     if (data) {
       updateGlucoseData(data.value, data.trend, data.ts);
     } else {

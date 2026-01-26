@@ -18,7 +18,7 @@ static int s_trend_value = -1;       // Default: unknown trend (-1)
 static time_t s_last_glucose_timestamp = 0;  // Unix time of last valid data
 static time_t s_last_request_timestamp = 0;  // Unix time of last request sent
 static const time_t GLUCOSE_STALE_SECONDS = 15 * 60;  // Consider data stale after 15 minutes
-static const time_t GLUCOSE_REQUEST_THROTTLE_SECONDS = 0;  // 5 minutes between requests
+static const time_t GLUCOSE_REQUEST_THROTTLE_SECONDS = 2 * 60;  // 5 minutes between requests
 static bool s_initialized = false;
 
 // Forward declaration for AppSync callback compatibility

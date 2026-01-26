@@ -389,7 +389,8 @@ static void update_bottom_status(struct tm *time) {
 	}
 }
 
-static struct tm *t;
+static struct tm current_time;  // Store actual time data, not just a pointer
+static struct tm *t = &current_time;  // Keep pointer for compatibility
 
 static int currentNLines;
 
@@ -750,6 +751,14 @@ static void display_time(struct tm *tm)
 
 static void tap_handler(AccelAxisType axis, int32_t direction)
 {
+  // Get fresh time data and copy it to our storage
+  time_t raw_time;
+  time(&raw_time);
+  struct tm *temp_time = localtime(&raw_time);
+  if (temp_time) {
+    current_time = *temp_time;  // Copy the data
+  }
+  
   showTime = !showTime;
   display_time(t);
 }
@@ -807,16 +816,19 @@ static void display_initial_time(struct tm *t)
 // Time handler called every minute by the system
 static void handle_minute_tick(struct tm *tick_time, TimeUnits units_changed)
 {
-	t = tick_time;
+	// Copy time data to our storage (tick_time points to static buffer that can be overwritten)
+	if (tick_time) {
+		current_time = *tick_time;
+	}
   
   if (!showTime) {
     dateTimeout++;
   }
   
-	display_time(tick_time);
+	display_time(t);
 	
 	// Request glucose data every 5 minutes (at 0, 5, 10, 15, etc.)
-	if (tick_time->tm_min % 5 == 0) {
+	if (t->tm_min % 5 == 0) {
 		pebble_messenger_request_glucose();
 	}
 }
@@ -1136,11 +1148,14 @@ static void window_load(Window *window)
 
 
 
-	// Configure time on init
+	// Configure time on init - copy to our storage
 	time_t raw_time;
 
 	time(&raw_time);
-	t = localtime(&raw_time);
+	struct tm *temp_time = localtime(&raw_time);
+	if (temp_time) {
+		current_time = *temp_time;
+	}
 
 	display_initial_time(t);
 
@@ -1213,10 +1228,32 @@ static void window_unload(Window *window)
 static void handle_init() {
 	// Settings loaded in window_load before AppSync init
 
-	snprintf(top_time_buffer, sizeof(top_time_buffer), "--:--");
-	bottom_date_buffer[0] = '\0';
-	bottom_info_buffer[0] = '\0';
+	// Get current time immediately for buffer initialization and copy to our storage
+	time_t raw_time;
+	time(&raw_time);
+	struct tm *init_time = localtime(&raw_time);
+	if (init_time) {
+		current_time = *init_time;  // Copy to our storage
+	}
+	
+	// Initialize time buffer with actual current time (not placeholder)
+	const char *format = clock_is_24h_style() ? "%H:%M" : "%I:%M";
+	if (strftime(top_time_buffer, sizeof(top_time_buffer), format, t) == 0) {
+		snprintf(top_time_buffer, sizeof(top_time_buffer), "--:--");
+	}
+	if (!clock_is_24h_style() && top_time_buffer[0] == '0') {
+		memmove(top_time_buffer, top_time_buffer + 1, sizeof(top_time_buffer) - 1);
+	}
+	
+	// Initialize date buffer with actual current date
+	if (strftime(bottom_date_buffer, sizeof(bottom_date_buffer), "%d.%m.%Y", t) == 0) {
+		snprintf(bottom_date_buffer, sizeof(bottom_date_buffer), "--.--.----");
+	}
+	
+	// Glucose info starts empty until we receive data
+	snprintf(bottom_info_buffer, sizeof(bottom_info_buffer), "---");
 	bottom_trend_direction = TREND_UNKNOWN;
+	
 	current_battery_state = battery_state_service_peek();
 	bluetooth_connected = connection_service_peek_pebble_app_connection();
 	battery_state_service_subscribe(battery_state_handler);

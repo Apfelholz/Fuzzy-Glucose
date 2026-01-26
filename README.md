@@ -1,23 +1,19 @@
-Fuzzy Text International
-========================
+Fuzzy Glucose
+===============
 
-This is a watchface for the [Pebble][].  It is originally based on the
-[PebbleTextWatch][] by Mihai Dumitrache, which reproduced the look of
-the Text Watch that comes standard with the Pebble.
+This is a watchface for the [Pebble][]. It includes a display for glucose data from the [LibreLinkUp][] API.
+
+It is a fork of [Fuzzy Text International][]
+by Jesse Hallett, which is based on the [Swedish fuzzy text watch][] by Mattias Bäcklund,
+and originally on [PebbleTextWatch][] by Mihai Dumitrache.
 
 [Pebble]: https://getpebble.com/
+[Fuzzy Text International]: https://github.com/hallettj/Fuzzy-Text-International
+[Swedish fuzzy text watch]: https://github.com/Sarastro72/Swedish-Fuzzy-Text-watch
 [PebbleTextWatch]: https://github.com/wearewip/PebbleTextWatch
 
-Mattias Bäcklund created a modified version, [Swedish fuzzy text
-watch][], that displays fuzzy time.  Mattias wanted to combine the
-elegant layout and animations of the Text Watch with the natural
-language of the Fuzzy Time watchface, and wanted it in his native
-language, Swedish.
-
-[Swedish fuzzy text watch]: https://github.com/Sarastro72/Swedish-Fuzzy-Text-watch
-
-This version builds upon the work by Mihai and Mattias: it supports
-multiple languages, and provides options to change the visual style.
+This version keeps the main fuzzy time display from the original and adds info layers
+at the top and bottom of the screen for additional information at a glance.
 
 Features:
 
@@ -26,13 +22,21 @@ Features:
  - Nice staggered animation
  - Between one and four lines of text, depending on need
  - Smaller words may share a single line (such as "fem i")
+ - **Info layers** displaying:
+   - Bluetooth connection status
+   - Date
+   - Time in numbers
+   - Battery level
+   - Glucose data from [LibreLinkUp][] API
 
-The following options can be configured, using the Pebble app on your
-phone:
+[LibreLinkUp]: https://librelinkup.com/
+
+The following options can be configured using the Pebble app on your phone:
 
 - Invert colors (white-on-black or black-on-white)
 - Text alignment (centered, left, or right)
 - Language
+- LibreLinkUp credentials (for glucose monitoring)
 
 At this time the included languages are:
 
@@ -47,14 +51,17 @@ At this time the included languages are:
 Authors
 -------
 
-Thanks to all of the people who made this watchface possible:
-
 - [Mihai Dumitrache][Mihai], implemented an open source version of Text Watch
-- [Mattias Bäcklund][Mattias], created Swedish fuzzy text watch
+- [Mattias Bäcklund][Mattias], created Swedish fuzzy text watch
 - [Jesse Hallett][Jesse], added configuration options and multiple language support
 - [Filip Horvei][iFlips], provided Norwegian translation
 - Tomi De Lucca, discovered fix for a severe iOS bug & assisted with Spanish translation
+- Jirik, kindly provided Pebble watches for development and testing
+- [Jonathan Salomo][Apfelholz], development of this fork with info layers and LibreLinkUp integration
+- [Bxnni Kania][Bxnni], co-developed this fork with info layers and LibreLinkUp integration
 
+[Apfelholz]: https://github.com/Apfelholz
+[Bxnni]: https://github.com/Bxnni78187
 [Mihai]: https://github.com/mmdumi
 [Mattias]: https://github.com/Sarastro72
 [Jesse]: https://github.com/hallettj

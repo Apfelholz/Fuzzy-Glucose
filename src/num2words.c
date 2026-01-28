@@ -163,6 +163,9 @@ void time_to_words(Language lang, int hours, int minutes, int seconds, char* wor
 
 const char* get_day(Language lang, int index) {
   switch (lang) {
+    case DE:
+      return DAYS_DE_DE[index];
+      break;
     default:
       return DAYS_EN_US[index];
   }
@@ -170,6 +173,9 @@ const char* get_day(Language lang, int index) {
 
 const char* get_month(Language lang, int index) {
   switch (lang) {
+    case DE:
+      return MONTHS_DE_DE[index];
+      break;
     default:
       return MONTHS_EN_US[index];
   }
